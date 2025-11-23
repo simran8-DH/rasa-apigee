@@ -1,0 +1,303 @@
+version: "3.1"
+
+nlu:
+# ?i case sensitive, \b word boundary, [a-zA-Z]{2,20} 2-20 characters, \s+ space, \d+ digits
+- regex: first_name
+  examples: |
+    - \b[a-zA-Z]{2,20}\b
+    - (?i)\b(first\s+name|name\s+is|i\s+am|call\s+me|my\s+name)\s+([a-zA-Z]{2,20})
+
+- regex: last_name
+  examples: |
+    - \b[a-zA-Z]{2,20}\b
+    - (?i)\b(last\s+name|surname|family\s+name)\s+([a-zA-Z]{2,20})
+
+- regex: dob_quotation
+  examples: |
+    - \b\d{4}[/-]\d{2}[/-]\d{2}\b
+    - \b\d{4}\s+\d{1,2}\s+(january|february|march|april|may|june|july|august|september|october|november|december|jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\b
+    - \b\d{1,2}\s+(january|february|march|april|may|june|july|august|september|october|november|december|jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\s+\d{4}\b
+
+- regex: gender
+  examples: |
+    - (?i)(male|female|other)
+
+- regex: marital_status
+  examples: |
+    - (?i)(single|married|divorced|widowed)
+
+- regex: tobacco
+  examples: |
+    - (?i)(yes|no|do|dont|don't|doesn't|does not|do not)
+
+- regex: sum_assured
+  examples: |
+    - \b\d{6,12}\b
+
+- regex: term
+  examples: |
+    - \b\d{1,2}\b
+
+- regex: ppt
+  examples: |
+    - \b\d{1,2}\b
+    - (?i)(annually|yearly|monthly|quarterly|half.?yearly)
+    - \b\d{1,2}\s+years?\b
+
+- regex: rider_name
+  examples: |
+    - (?i)(adbw|cirider|critical illness|accidental death|waiver of premium|hospital cash|accidental total disability)
+
+- regex: rider_sa
+  examples: |
+    - \b\d{5,12}(,\d{3})*\b
+
+- intent: greet
+  examples: |
+    - hey
+    - hello
+    - hi
+    - hello there
+    - good morning
+    - good evening
+    - moin
+    - hey there
+    - let's go
+    - hey dude
+    - goodmorning
+    - goodevening
+    - good afternoon
+
+- intent: goodbye
+  examples: |
+    - cu
+    - good by
+    - cee you later
+    - good night
+    - bye
+    - goodbye
+    - have a nice day
+    - see you around
+    - bye bye
+    - see you later
+
+- intent: bot_challenge
+  examples: |
+    - are you a bot?
+    - are you a human?
+    - am I talking to a bot?
+    - am I talking to a human?
+
+# Insurance Quotation Agent:dob, confirm(affirm),deny already exists
+
+- intent: ask_quotation
+  examples: |
+    - I want a life insurance quotation
+    - I need a term insurance quote
+    - Give me a quote
+    - Please provide premium quotation
+    - I need an insurance quote
+    - Can you calculate the premium for me?
+    - I want to check the quotation
+    - Help me with policy quotation
+    - I want to get a quote for insurance
+    - Can I get a life insurance quote?
+    - I need a quote for life insurance policy
+    - Please give me insurance quotation
+    - I want insurance quotation
+    - Get me a quote
+    - I need quotation
+    - Show me quotation
+    - Calculate my premium
+    - I want premium quotation
+    - Need insurance quote
+    - Quote for insurance
+    - Life insurance quote please
+    - I want to know the premium
+    - Can you provide a quotation?
+    - I need a policy quote
+    - Get quotation
+    - Insurance quote needed
+    - Premium calculation please
+
+- intent: provide_first_name
+  examples: |
+    - My first name is [Rahul](first_name)
+    - I am [Neha](first_name)
+    - First name: [Arjun](first_name)
+    - It's [Pooja](first_name)
+    - Call me [Rakesh](first_name)
+    - [Test](first_name)
+
+- intent: provide_last_name
+  examples: |
+    - My last name is [Sharma](last_name)
+    - Last name: [Singh](last_name)
+    - Surname is [Patel](last_name)
+    - It's [Verma](last_name)
+    - I am [Gupta](last_name)
+    - [TEST](last_name)
+
+- intent: provide_full_name
+  examples: |
+    - My name is [Rahul](first_name) [Sharma](last_name)
+    - [Simran](first_name) [Lahrani](last_name)
+    - [John](first_name) [Doe](last_name)
+    - I am [Priya](first_name) [Patel](last_name)
+    - [Amit](first_name) [Kumar](last_name)
+    - My full name is [Rakesh](first_name) [Verma](last_name)
+    - [Neha](first_name) [Singh](last_name)
+    - Call me [Arjun](first_name) [Gupta](last_name)
+
+- intent: provide_dob_quotation
+  examples: |
+    - My date of birth is [1992/01/06](dob_quotation)
+    - DOB: [1995/09/15](dob_quotation)
+    - [1989/03/31](dob_quotation)
+    - It's [1987/12/05](dob_quotation)
+    - [1990/11/01](dob_quotation)
+    - dob [1987 04 june](dob_quotation)
+    - date of birth [1990 may 15](dob_quotation)
+    - born [1985 march 20](dob_quotation)
+
+- intent: provide_gender
+  examples: |
+    - My gender is [male](gender)
+    - [female](gender)
+    - [male](gender)
+    - Gender: [female](gender)
+    - I identify as [male](gender)
+
+- intent: provide_marital_status
+  examples: |
+    - I am [single](marital_status)
+    - I am [married](marital_status)
+    - My marital status is [single](marital_status)
+    - [Married](marital_status)
+    - Marital status: [single](marital_status)
+
+- intent: provide_sum_assured
+  examples: |
+    - Sum assured is [9000](sum_assured)
+    - [90000000](sum_assured)
+    - I want coverage of [1000000](sum_assured)
+    - Set sum assured to [2500000](sum_assured)
+    - I need cover of [1500000](sum_assured)
+    - Coverage amount: [2000000](sum_assured)
+
+- intent: provide_term
+  examples: |
+    - Policy term is [10](term) years
+    - Term: [20](term)
+    - I want a policy for [15](term) years
+    - Make the tenure [25](term)
+    - Set term to [12](term)
+    - [30](term)
+
+# - intent: provide_product
+#   examples: |
+#     - I want the [Term Insurance](product)
+#     - Product: [Smart Protect](product)
+#     - I prefer [ULIP](product)
+#     - Please select [Savings Plan](product)
+#     - I want [Guaranteed Income Plan](product)
+#     - [ICICI PRU IPROTECT SMART PLUS](product)
+
+- intent: provide_rider_name
+  examples: |
+    - [CIRIDER](rider_name)
+    - [ADBW](rider_name)
+    - [CIRIDER,ADBW](rider_name)
+    - Add rider [Accidental Death](rider_name)
+    - I want rider [Critical Illness](rider_name)
+    - Please include [Waiver of Premium](rider_name)
+    - Add [Hospital Cash](rider_name)
+    - Rider: [Accidental Total Disability](rider_name)
+
+- intent: provide_rider_sa
+  examples: |
+   - The rider sum assured is [200000](rider_sa)
+   - For the rider, take [50000,500000](rider_sa)
+   - Assign rider amount [300000](rider_sa)
+   - Add rider coverage of [100000](rider_sa)
+   - Rider SA should be [200000,100000](rider_sa)
+
+- intent: consume_tobacco
+  examples: |
+    - [yes](tobacco)
+    - [no](tobacco)
+    - i [dont](tobacco) consume tobacoo
+    - i [do](tobacco) consume tobacco
+
+- intent: provide_ppt
+  examples: |
+    - The premium payment term is [10](ppt) years
+    - I want to pay for [15](ppt) years
+    - Set PPT to [20](ppt)
+    - My payment term is [5](ppt) years
+    - Make the premium payment term [12](ppt) years
+    - [15](ppt)
+
+# - intent: provide_mode
+#   examples: |
+#     - Payment mode: [monthly](mode)
+#     - [Monthly](mode)
+#     - I will pay [yearly](mode)
+#     - Set mode to [half-yearly](mode)
+#     - I prefer [quarterly](mode)
+#     - Make it [annual](mode)
+
+- intent: change_value
+  examples: |
+    - I want to change it
+    - No, modify the value
+    - That is incorrect, change the previous value
+    - Update it again
+    - I want to provide new details
+    - Let me change the information
+
+- intent: stop
+  examples: |
+    - stop
+    - no
+    - nope
+    - nah
+    - no thanks
+    - not interested
+    - cancel
+    - end the process
+    - cancel quotation
+    - I don't want to continue
+    - forget it
+    - I don't want to proceed
+    - don't proceed
+
+- intent: confirm_premium
+  examples: |
+    - proceed
+    - yes
+    - yes go ahead
+    - go ahead
+    - ok get premium
+    - get premium
+    - calculate premium
+    - show me premium
+    - yes proceed
+    - ok proceed
+    - let's proceed
+    - continue
+    - sure
+    - alright
+    - fine
+    - ok
+    - yes please
+    - please proceed
+
+# if user puts entire details together
+- intent: provide_all_details
+  examples: |
+    - [Utkarsh](first_name) [maurya](last_name), dob [1987 04 june](dob_quotation), [no](tobacco) tobacco, [married](marital_status), [5000000](sum_assured), [20](term) years, premium [annually](ppt) for [10](ppt) years only
+    - My name is [John](first_name) [Doe](last_name), date of birth [1990/05/15](dob_quotation), [male](gender), [single](marital_status), [no](tobacco) tobacco, sum assured [1000000](sum_assured), term [25](term) years, ppt [15](ppt) years
+    - [Rahul](first_name) [Sharma](last_name) [1985-03-20](dob_quotation) [male](gender) [married](marital_status) [yes](tobacco) [2000000](sum_assured) [30](term) [20](ppt)
+    - [Priya](first_name) [Patel](last_name) born [1992/11/10](dob_quotation) [female](gender) [married](marital_status) don't smoke [1500000](sum_assured) for [20](term) years pay [annually](ppt) for [10](ppt) years
+    - [Amit](first_name) [Kumar](last_name) [1988 12 25](dob_quotation) [male](gender) [single](marital_status) [no](tobacco) [3000000](sum_assured) [15](term) years premium payment [12](ppt) years

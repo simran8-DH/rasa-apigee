@@ -1,0 +1,61 @@
+version: "3.1"
+
+rules:
+
+# Rule 1: When user says goodbye, bot responds with goodbye message
+- rule: Say goodbye anytime the user says goodbye
+  steps:
+  - intent: goodbye
+  - action: utter_goodbye
+
+# Rule 2: When user asks if bot is human/robot, bot says it's a bot
+- rule: Say 'I am a bot' anytime the user challenges
+  steps:
+  - intent: bot_challenge
+  - action: utter_iamabot
+
+# Insurance Quotation Agent:dob, confirm(affirm),deny already exists
+
+# Rule 3: When user asks for quotation, start the quotation form
+- rule: activate quotation form
+  steps:
+  - intent: ask_quotation
+  - action: action_activate_quotation_form
+  - action: quotation_form
+  - active_loop: quotation_form
+
+# Rule 4: When quotation form is filled completely, submit it and show summary
+- rule: submit quotation form
+  condition:
+  - active_loop: quotation_form
+  steps:
+  - action: quotation_form
+  - active_loop: null
+  - action: action_submit_quotation_form
+
+# Rule 5: When user confirms to proceed with premium calculation
+- rule: Proceed to premium when user confirms
+  condition:
+    - slot_was_set:
+        - awaiting_premium_confirmation: True
+    - active_loop: null
+  steps:
+    - intent: confirm_premium
+    - action: action_call_premium_api
+
+# Rule 6: When user wants to stop/cancel premium calculation
+- rule: Stop premium when user stops
+  condition:
+    - slot_was_set:
+        - awaiting_premium_confirmation: True
+    - active_loop: null
+  steps:
+    - intent: stop
+    - action: action_stop_premium
+
+# Rule 7: When bot doesn't understand what user said (fallback)
+- rule: Handle fallback when bot doesn't understand
+  steps:
+    - intent: nlu_fallback
+    - action: utter_default
+

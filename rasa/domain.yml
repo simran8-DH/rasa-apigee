@@ -1,0 +1,312 @@
+version: "3.1"
+
+intents:
+  - greet
+  - goodbye
+  - bot_challenge
+  
+  - ask_quotation
+  - provide_first_name
+  - provide_last_name
+  - provide_full_name
+  - provide_gender
+  - provide_marital_status
+  - provide_sum_assured
+  - provide_term
+  # - provide_product
+  - provide_rider_name
+  - provide_rider_sa
+  - consume_tobacco
+  - provide_ppt
+  # - provide_mode
+  - change_value
+  - stop
+  - provide_dob_quotation
+  - nlu_fallback
+  - confirm_premium
+  - provide_all_details
+
+entities:
+# Insurance Quotation Agent:dob, confirm(affirm),deny already exists
+  - first_name
+  - last_name
+  - dob_quotation
+  - gender
+  - marital_status
+  - sum_assured
+  - term
+  - tobacco
+  # - product
+  - rider_name
+  - rider_sa
+  # - mode
+  - ppt
+
+slots:
+  
+# Insurance Quotation Agent:dob, confirm(affirm),deny already exists
+
+  first_name:
+    type: text
+    influence_conversation: true
+    mappings:
+      - type: from_entity
+        entity: first_name
+        conditions:
+          - active_loop: quotation_form
+      - type: from_text
+        conditions:
+          - active_loop: quotation_form
+            requested_slot: first_name
+
+  last_name:
+    type: text
+    influence_conversation: true
+    mappings:
+      - type: from_entity
+        entity: last_name
+        conditions:
+          - active_loop: quotation_form
+      - type: from_text
+        conditions:
+          - active_loop: quotation_form
+            requested_slot: last_name
+
+  dob_quotation:
+    type: text
+    influence_conversation: true
+    mappings:
+      - type: from_entity
+        entity: dob_quotation
+        conditions:
+          - active_loop: quotation_form
+      - type: from_text
+        conditions:
+          - active_loop: quotation_form
+            requested_slot: dob_quotation
+
+  gender:
+    type: text
+    influence_conversation: true
+    mappings:
+      - type: from_entity
+        entity: gender
+        conditions:
+          - active_loop: quotation_form
+      - type: from_text
+        conditions:
+          - active_loop: quotation_form
+            requested_slot: gender
+
+  marital_status:
+    type: text
+    influence_conversation: true
+    mappings:
+      - type: from_entity
+        entity: marital_status
+        conditions:
+          - active_loop: quotation_form
+      - type: from_text
+        conditions:
+          - active_loop: quotation_form
+            requested_slot: marital_status
+
+  tobacco:
+    type: text
+    influence_conversation: true
+    mappings:
+      - type: from_entity
+        entity: tobacco
+        conditions:
+          - active_loop: quotation_form
+      - type: from_text
+        conditions:
+          - active_loop: quotation_form
+            requested_slot: tobacco
+
+  sum_assured:
+    type: float
+    influence_conversation: true
+    mappings:
+      - type: from_entity
+        entity: sum_assured
+        conditions:
+          - active_loop: quotation_form
+      - type: from_text
+        conditions:
+          - active_loop: quotation_form
+            requested_slot: sum_assured
+
+  term:
+    type: float
+    influence_conversation: true
+    mappings:
+      # from_entity: Only extract when form is asking for term (prevents extracting from PPT input)
+      - type: from_entity
+        entity: term
+        conditions:
+          - active_loop: quotation_form
+            requested_slot: term
+      # from_text: Takes entire user message when form is asking for this specific slot
+      - type: from_text
+        conditions:
+          - active_loop: quotation_form
+            requested_slot: term
+
+  # product:
+  #   type: text
+  #   influence_conversation: true
+  #   mappings:
+  #     - type: from_entity
+  #       entity: product
+
+  ppt:
+    type: text
+    influence_conversation: true
+    mappings:
+      # from_entity: Only extract when form is asking for PPT (prevents extracting from term input)
+      - type: from_entity
+        entity: ppt
+        conditions:
+          - active_loop: quotation_form
+            requested_slot: ppt
+      - type: from_text
+        conditions:
+          - active_loop: quotation_form
+            requested_slot: ppt
+
+  # mode:
+  #   type: text
+  #   influence_conversation: true
+  #   mappings:
+  #     - type: from_entity
+  #       entity: mode
+
+  rider_name:
+    type: list
+    influence_conversation: true
+    mappings:
+      - type: from_text
+        conditions:
+          - active_loop: optional_riders_form
+            requested_slot: rider_name
+
+  rider_sa:
+    type: list
+    influence_conversation: true
+    mappings:
+      - type: from_text
+        conditions:
+          - active_loop: optional_riders_form
+            requested_slot: rider_sa
+
+  confirmation:
+    type: bool
+    influence_conversation: true
+    mappings:
+      - type: from_entity
+        entity: confirmation
+
+  awaiting_premium_confirmation:
+    type: bool
+    influence_conversation: false
+    initial_value: false
+    mappings:
+      - type: custom
+
+
+# when multiple slots and entities are there, then we can use forms
+forms:
+
+# Insurance Quotation Agent:dob, confirm(affirm),deny already exists
+  quotation_form:
+    required_slots:
+      - first_name
+      - last_name
+      - dob_quotation
+      - gender
+      - marital_status
+      - tobacco
+      - sum_assured
+      - term
+      # - product
+      - ppt
+      # - mode
+    
+  optional_riders_form:
+    required_slots:
+      - rider_name
+      - rider_sa
+
+responses:
+
+  utter_greet:
+  - text: "Hey! How can I help you today?"
+
+  utter_goodbye:
+  - text: "Bye"
+
+  utter_iamabot:
+  - text: "I am a bot, powered by Rasa."
+
+  utter_default:
+  - text: "Sorry, I didn't understand that. Could you please provide the information I asked for?"
+
+# Insurance Quotation Agent:dob, confirm(affirm),deny already exists
+
+  utter_ask_first_name:
+  - text: "May I know your first name? (Or provide all details at once)"
+
+  utter_ask_last_name:
+  - text: "And your last name?"
+
+  utter_ask_dob_quotation:
+  - text: "Please enter your Date of Birth (YYYY/MM/DD) so I can calculate your insurance premium."
+
+  utter_ask_gender:
+  - text: "Your gender? (Male/Female)"
+
+  utter_ask_marital_status:
+  - text: "Are you married or single?"
+
+  utter_ask_tobacco:
+  - text: "Do you consume tobacco? (yes/no)"
+
+  utter_ask_sum_assured:
+  - text: "What life cover (sum assured) do you want? (e.g. 5000000)"
+
+  utter_ask_term:
+  - text: "What should be the policy term? (e.g. 28 years)"
+
+  # utter_ask_product:
+  # - text: "Which product should I quote?\n1. iProtect Smart\n2. iProtect Smart Plus\n3. Traditional"
+
+  utter_ask_ppt:
+  - text: "What Premium Payment Term (PPT) do you want? (e.g. 5 years)"
+
+
+  # utter_ask_mode:
+  # - text: "Preferred mode of payment? (Monthly / Yearly / Half-Yearly)"
+
+  utter_ask_rider_name:
+  - text: "Which riders do you want to add? (ADB / CI / Both / None)"
+
+  utter_ask_rider_sa:
+  - text: "What should be the rider sum assured amount(s)?"
+
+session_config:
+  session_expiration_time: 60
+  carry_over_slots_to_new_session: true
+
+actions:
+  # Insurance Quotation Agent:dob, confirm(affirm),deny already exists 
+  # Step 1: Shows instructions when user asks for quotation
+  - action_activate_quotation_form
+  # Step 2: Validates each field as user provides information (runs automatically during form)
+  - validate_quotation_form
+  # Step 3: Shows summary after all fields are collected
+  - action_submit_quotation_form
+  # Step 4: Calls API to get premium when user confirms (runs after step 3)
+  - action_call_premium_api
+  # Step 5: Cancels premium calculation if user says stop (alternative to step 4)
+  - action_stop_premium
