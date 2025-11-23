@@ -1,0 +1,32 @@
+rasa commands:
+# Train the model
+rasa train
+
+# Run Rasa server with API enabled
+rasa run --enable-api --cors "*"
+
+# Run custom actions server
+rasa run actions
+
+# Talk to the bot in terminal
+rasa shell
+
+# Validate all YAML files (NLU, stories, domain)
+rasa data validate
+
+# Test the complete Rasa model : 
+# NLU accuracy (intents + entities) and Story accuracy (Core prediction)
+# NLU = “What did user mean?” and Core = “What should I reply/do next?”
+rasa test
+-----------------------------------------------------------------------
+
+steps to push on git:
+1.Firstly create a repo on github ui
+2.In terminal on vs code,git init
+3.create .gitignore file (models r ignored bydefault)
+4.git add .
+5.git commit -m "msg"
+6.git remote add origin repourl (to connect local repo to github repo)
+7.git remote -v
+8.git branch -M main
+9.git push -u origin main
