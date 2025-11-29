@@ -282,7 +282,7 @@ responses:
   # - text: "Which product should I quote?\n1. iProtect Smart\n2. iProtect Smart Plus\n3. Traditional"
 
   utter_ask_ppt:
-  - text: "What Premium Payment Term (PPT) do you want? (e.g. 5 years)"
+  - text: "What Premium Payment Term (PPT) do you want? (For this policy,choose 5/7/10/15)"
 
 
   # utter_ask_mode:
