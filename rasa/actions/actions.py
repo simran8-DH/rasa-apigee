@@ -1,968 +1,13 @@
-# """
-# Insurance Quotation Bot - Custom Actions
-# This file contains all the custom actions that the bot performs when collecting quotation details.
-# """
-
-# import re
-# import json
-# from rasa_sdk.events import SlotSet, ActiveLoop
-# from rasa_sdk.executor import CollectingDispatcher
-# from rasa_sdk import Action, Tracker, FormValidationAction
-# from typing import Any, Dict, List
-# from actions.api_utils_noED import get_cached_token, call_main_api
-# from rasa_sdk.types import DomainDict
-# from actions.properties import API_URL
-
-# class ActionActivateQuotationForm(Action):
-#     """
-#     This action is called when the user asks for a quotation.
-#     If all details are already collected, it directly shows the summary.
-#     Otherwise, it shows instructions to collect details.
-#     """
-    
-#     def name(self) -> str:
-#         return "action_activate_quotation_form"
-    
-#     def run(self, dispatcher: CollectingDispatcher,
-#             tracker: Tracker,
-#             domain: DomainDict) -> List[Dict[str, Any]]:
-        
-#         # Check if all required slots are already filled
-#         required_slots = ["first_name", "last_name", "dob_quotation", "gender", 
-#                          "marital_status", "tobacco", "sum_assured", "term", "ppt"]
-        
-#         all_filled = all(tracker.get_slot(slot) is not None and tracker.get_slot(slot) != "" 
-#                         for slot in required_slots)
-        
-#         # If all slots are filled, directly show summary (skip form)
-#         if all_filled:
-#             product = "ICICI PRU IPROTECT SMART PLUS"
-#             mode = "Annually"
-#             dispatcher.utter_message(
-#                 text=(
-#                     "*Quotation Summary*\n"
-#                     f"*Product:* {product}\n"
-#                     f"*Sum Assured:* {tracker.get_slot('sum_assured')}\n"
-#                     f"*Term:* {tracker.get_slot('term')} years\n"
-#                     f"*Tobacco:* {tracker.get_slot('tobacco')}\n"
-#                     f"*Mode:* {mode}\n"
-#                     "*Should I proceed to get your premium?* (proceed/stop)"
-#                 )
-#             )
-#             # Return ActiveLoop(null) to prevent form from activating, and set confirmation flag
-#             return [
-#                 ActiveLoop(None),
-#                 SlotSet("awaiting_premium_confirmation", True)
-#             ]
-        
-#         # If slots are not filled, show instructions to collect details
-#         message = (
-#             "Great! I'll help you get a quotation. Please provide me with the following details:\n"
-#             "• Name (First and Last name)\n"
-#             "• Date of Birth (e.g., 1987/04/06 or 1987 04 june)\n"
-#             "• Gender (Male/Female)\n"
-#             "• Marital Status (Married/Single)\n"
-#             "• Tobacco consumption (Yes/No)\n"
-#             "• Policy Term (e.g., 20 years)\n"
-#             # "• Premium Payment Term (PPT) (e.g., 10 years)\n"
-#             "• Sum Assured (e.g., 5000000)\n"
-#             "You can provide all these details in a single comma-separated message or can chat.\n"
-#         )
-#         dispatcher.utter_message(text=message)
-#         return []
-
-# class ValidateQuotationForm(FormValidationAction):
-#     """
-#     This class validates all the information the user provides.
-#     When the user types something, Rasa calls these validation methods to check and clean the data.
-#     """
-
-#     def name(self):
-#         return "validate_quotation_form"
-
-#     def extract_entities_from_message(self, tracker):
-#         """
-#         This method tries to find all information from the user's message.
-#         First, it checks if Rasa's NLU (Natural Language Understanding) found any entities.
-#         If not, it uses regex patterns to search the message text directly.
-#         """
-#         latest_message = tracker.latest_message
-#         entities = latest_message.get("entities", [])
-#         extracted = {}
-        
-#         # Step 1: Get entities that Rasa NLU already found (from regex patterns in nlu.yml)
-#         for entity in entities:
-#             entity_name = entity.get("entity")
-#             entity_value = entity.get("value")
-#             if entity_name and entity_value:
-#                 extracted[entity_name] = entity_value
-        
-#         # Step 2: If NLU missed something, search the message text directly using regex
-#         full_text = latest_message.get("text", "") or ""
-#         # For comma-separated inputs, normalize spaces directly after commas
-#         # e.g. ", 10" -> ",10" so that number extraction is consistent
-#         full_text = re.sub(r',\s+(\d)', r',\1', full_text)
-#         text = full_text.lower()
-        
-#         # Extract names if not found by NLU
-#         # Look for pattern like "John Doe" (two words at the start)
-#         if "first_name" not in extracted or "last_name" not in extracted:
-#             text_for_names = full_text
-#             # If there's a comma, names are usually before the first comma
-#             if ',' in text_for_names:
-#                 text_for_names = text_for_names.split(',')[0]
-            
-#             # Match two consecutive words (regex handles case automatically)
-#             name_pattern = r'^([a-zA-Z]+)\s+([a-zA-Z]+)\b'
-#             name_match = re.search(name_pattern, text_for_names)
-#             if name_match:
-#                 if "first_name" not in extracted:
-#                     extracted["first_name"] = name_match.group(1).capitalize()
-#                 if "last_name" not in extracted:
-#                     extracted["last_name"] = name_match.group(2).capitalize()
-        
-#         # Extract Date of Birth - try different date formats
-#         if "dob_quotation" not in extracted:
-#             dob_patterns = [
-#                 r'\b(\d{4})[/-](\d{1,2})[/-](\d{1,2})\b',  # YYYY/MM/DD or YYYY-MM-DD
-#                 r'\b(\d{4})\s+(\d{1,2})\s+(january|february|march|april|may|june|july|august|september|october|november|december|jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\b',
-#                 r'\b(\d{1,2})\s+(january|february|march|april|may|june|july|august|september|october|november|december|jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\s+(\d{4})\b',
-#             ]
-#             for pattern in dob_patterns:
-#                 match = re.search(pattern, full_text, re.IGNORECASE)
-#                 if match:
-#                     if len(match.groups()) == 3:
-#                         if match.group(3).isdigit():
-#                             # Format: YYYY/MM/DD
-#                             extracted["dob_quotation"] = f"{match.group(1)}-{match.group(2).zfill(2)}-{match.group(3).zfill(2)}"
-#                         else:
-#                             # Format: YYYY DD Month
-#                             month_num = self._month_to_num(match.group(3))
-#                             extracted["dob_quotation"] = f"{match.group(1)}-{month_num:02d}-{int(match.group(2)):02d}"
-#                     break
-        
-#         # Extract gender - look for "male" or "female" keywords
-#         if "gender" not in extracted:
-#             if re.search(r'\b(male|m)\b', text):
-#                 extracted["gender"] = "Male"
-#             elif re.search(r'\b(female|f)\b', text):
-#                 extracted["gender"] = "Female"
-        
-#         # Extract marital status - look for "married" or "single"
-#         if "marital_status" not in extracted:
-#             if re.search(r'\b(married|m)\b', text):
-#                 extracted["marital_status"] = "Married"
-#             elif re.search(r'\b(single|s)\b', text):
-#                 extracted["marital_status"] = "Single"
-        
-#         # Extract tobacco consumption - look for yes/no patterns
-#         if "tobacco" not in extracted:
-#             if re.search(r',\s*(no|n)\s*,', text) or re.search(r'^no\s*,', text) or re.search(r',\s*no$', text):
-#                 extracted["tobacco"] = "No"
-#             elif re.search(r',\s*(yes|y)\s*,', text) or re.search(r'^yes\s*,', text) or re.search(r',\s*yes$', text):
-#                 extracted["tobacco"] = "Yes"
-#             elif re.search(r'\b(no|don\'t|dont|doesn\'t|does not|do not)\s+tobacco', text):
-#                 extracted["tobacco"] = "No"
-#             elif re.search(r'\b(yes|do)\s+tobacco', text):
-#                 extracted["tobacco"] = "Yes"
-        
-#         # Extract sum assured - look for large numbers (6-12 digits, minimum 5 lakhs)
-#         if "sum_assured" not in extracted:
-#             sa_pattern = r'\b(\d{6,12})\b'
-#             sa_matches = re.findall(sa_pattern, full_text)
-#             if sa_matches:
-#                 for match in reversed(sa_matches):
-#                     num = int(match)
-#                     if 500000 <= num <= 999999999999:
-#                         extracted["sum_assured"] = match
-#                         break
-        
-#         # Extract policy term - First check for "term" keyword, then position-based
-#         if "term" not in extracted:
-#             # First, try to find "term" or "policy term" keyword with a number (e.g., "25 term", "25 policy term")
-#             # This works even if not comma-separated
-#             term_patterns = [
-#                 r'\b(\d{1,2})\s*(?:years?)?\s*term\b',  # "25 term" or "25 years term"
-#                 r'\b(\d{1,2})\s*policy\s*term\b',  # "25 policy term"
-#                 r'term\s*(?:is|of)?\s*(\d{1,2})\s*(?:years?)?\b',  # "term is 25" or "term 25"
-#             ]
-#             for pattern in term_patterns:
-#                 term_match = re.search(pattern, full_text, re.IGNORECASE)
-#                 if term_match:
-#                     num = int(term_match.group(1))
-#                     if 5 <= num <= 40:
-#                         extracted["term"] = str(num)
-#                         break
-            
-#             # If not found with keyword, try comma-separated extraction (only if 3+ parts)
-#             if "term" not in extracted and ',' in full_text and len(full_text.split(',')) >= 3:
-#                 parts = full_text.split(',')
-#                 for part in parts:
-#                     part_stripped = part.strip()
-#                     # Skip dates
-#                     if re.search(r'\d{4}[/-]\d{1,2}[/-]\d{1,2}', part_stripped):
-#                         continue
-#                     # Skip large numbers (sum_assured)
-#                     if re.search(r'\d{6,}', part_stripped):
-#                         continue
-#                     # Skip if this part has "ppt" keyword (we're looking for term)
-#                     if re.search(r'\bppt\b', part_stripped, re.IGNORECASE):
-#                         continue
-#                     # Look for small numbers (5-40) that could be term
-#                     numbers = re.findall(r'\b(\d{1,2})\b', part_stripped)
-#                     for num_str in numbers:
-#                         num = int(num_str)
-#                         if 5 <= num <= 40:
-#                             extracted["term"] = str(num)
-#                             break
-#                     if "term" in extracted:
-#                         break
-        
-#         # Extract Premium Payment Term (PPT) - First check for "ppt" keyword, then position-based
-#         if "ppt" not in extracted:
-#             # First, try to find "ppt" keyword with a number (e.g., "5 ppt", "5 years ppt", "12 ppt")
-#             # This works even if not comma-separated
-#             ppt_patterns = [
-#                 r'\b(\d{1,2})\s*ppt\b',  # "12 ppt" (most specific - number directly before ppt)
-#                 r'\b(\d{1,2})\s*(?:years?)?\s*ppt\b',  # "5 ppt" or "5 years ppt"
-#                 r'ppt\s*(?:is|of)?\s*(\d{1,2})\s*(?:years?)?\b',  # "ppt is 5" or "ppt 5"
-#                 r'premium\s*payment\s*term.*?(\d{1,2})\s*(?:years?)?\b',  # "premium payment term 5"
-#             ]
-#             for pattern in ppt_patterns:
-#                 ppt_match = re.search(pattern, full_text, re.IGNORECASE)
-#                 if ppt_match:
-#                     num = int(ppt_match.group(1))
-#                     if 1 <= num <= 40:
-#                         extracted["ppt"] = str(num)
-#                         break
-            
-#             # If not found with keyword, try comma-separated extraction (only if 3+ parts)
-#             if "ppt" not in extracted and ',' in full_text and len(full_text.split(',')) >= 3:
-#                 parts = full_text.split(',')
-#                 term_value = extracted.get("term")  # Get term value if already extracted
-#                 # In comma-separated input, PPT is usually the last small number (after term)
-#                 for part in reversed(parts):
-#                     part_stripped = part.strip()
-#                     # Skip dates
-#                     if re.search(r'\d{4}[/-]\d{1,2}[/-]\d{1,2}', part_stripped):
-#                         continue
-#                     # Skip large numbers (sum_assured)
-#                     if re.search(r'\d{6,}', part_stripped):
-#                         continue
-#                     # Skip if this part has "term" keyword (we're looking for PPT)
-#                     if re.search(r'\bterm\b', part_stripped, re.IGNORECASE):
-#                         continue
-#                     numbers = re.findall(r'\b(\d{1,2})\b', part_stripped)
-#                     for num_str in numbers:
-#                         num = int(num_str)
-#                         if 1 <= num <= 40:
-#                             # If term was already extracted and this number is different, it's PPT
-#                             if term_value and str(num) != term_value:
-#                                 extracted["ppt"] = str(num)
-#                                 break
-#                             # If term not extracted yet, this could be PPT (last small number)
-#                             elif not term_value:
-#                                 extracted["ppt"] = str(num)
-#                                 break
-#                     if "ppt" in extracted:
-#                         break
-        
-#         return extracted
-
-#     def extract_all_slots_from_message(self, tracker):
-#         """
-#         This method checks if the user provided ALL details in a single message.
-#         If yes, it extracts all of them at once so the form doesn't ask again.
-#         CRITICAL: Never overwrites slots that already have values (when answering one by one).
-#         """
-#         latest_message = tracker.latest_message
-#         full_text = latest_message.get("text", "")
-        
-#         # Check if user provided comma-separated values (like "John Doe, 1987-04-06, male, ...")
-#         has_commas = ',' in full_text
-        
-#         # Get all entities found in the message
-#         entities = self.extract_entities_from_message(tracker)
-#         slot_values = {}
-        
-#         # Count how many different pieces of information we found
-#         entity_count = sum(1 for key in ["first_name", "last_name", "dob_quotation", "gender", 
-#                                         "marital_status", "tobacco", "sum_assured", "term", "ppt"] 
-#                           if key in entities)
-        
-#         # If user provided 2+ pieces of info OR used commas, they likely gave everything at once
-#         if has_commas or entity_count >= 2:
-#             # CRITICAL: Only set slots that are currently None/empty
-#             # Never overwrite slots that already have values (user answered one by one)
-            
-#             if "first_name" in entities and not tracker.get_slot("first_name"):
-#                 slot_values["first_name"] = re.sub(r'[^a-zA-Z\s-]', '', str(entities["first_name"])).strip()
-#             if "last_name" in entities and not tracker.get_slot("last_name"):
-#                 slot_values["last_name"] = re.sub(r'[^a-zA-Z\s-]', '', str(entities["last_name"])).strip()
-            
-#             if "dob_quotation" in entities and not tracker.get_slot("dob_quotation"):
-#                 dob = str(entities["dob_quotation"])
-#                 if ',' in dob:
-#                     dob = dob.split(',')[0].strip()
-#                 date_match = re.search(r'(\d{4})[/-](\d{1,2})[/-](\d{1,2})', dob)
-#                 if date_match:
-#                     slot_values["dob_quotation"] = f"{date_match.group(1)}-{date_match.group(2).zfill(2)}-{date_match.group(3).zfill(2)}"
-            
-#             if "gender" in entities and not tracker.get_slot("gender"):
-#                 gender = str(entities["gender"]).lower()
-#                 if ',' in gender:
-#                     gender = gender.split(',')[0].strip()
-#                 slot_values["gender"] = "Male" if gender in ["male", "m"] else "Female" if gender in ["female", "f"] else gender.capitalize()
-            
-#             if "marital_status" in entities and not tracker.get_slot("marital_status"):
-#                 status = str(entities["marital_status"]).lower()
-#                 if ',' in status:
-#                     status = status.split(',')[0].strip()
-#                 slot_values["marital_status"] = "Married" if status in ["married", "m"] else "Single" if status in ["single", "s"] else status.capitalize()
-            
-#             if "tobacco" in entities and not tracker.get_slot("tobacco"):
-#                 tobacco_val = str(entities["tobacco"]).lower()
-#                 if ',' in tobacco_val:
-#                     tobacco_val = tobacco_val.split(',')[0].strip()
-#                 slot_values["tobacco"] = "Yes" if tobacco_val in ["yes", "y", "do", "does"] else "No" if tobacco_val in ["no", "n", "don't", "dont"] else tobacco_val
-            
-#             if "sum_assured" in entities and not tracker.get_slot("sum_assured"):
-#                 sa_str = str(entities["sum_assured"])
-#                 if ',' in sa_str:
-#                     sa_str = sa_str.split(',')[0].strip()
-#                 numbers = re.findall(r'\d+', sa_str)
-#                 if numbers:
-#                     sa_value = float(''.join(numbers))
-#                     if sa_value >= 500000:
-#                         slot_values["sum_assured"] = sa_value
-            
-#             # Only set term if it's currently None/empty
-#             if "term" in entities and not tracker.get_slot("term"):
-#                 term_str = str(entities["term"])
-#                 if ',' in term_str:
-#                     term_str = term_str.split(',')[0].strip()
-#                 numbers = re.findall(r'\d+', term_str)
-#                 if numbers:
-#                     term_value = int(float(numbers[0]))
-#                     if 5 <= term_value <= 40:
-#                         slot_values["term"] = term_value
-            
-#             # Only set PPT if it's currently None/empty
-#             if "ppt" in entities and not tracker.get_slot("ppt"):
-#                 ppt_val = str(entities["ppt"])
-#                 if ',' in ppt_val:
-#                     ppt_val = ppt_val.split(',')[0].strip()
-#                 # Check for keywords first
-#                 if "annually" in ppt_val.lower() or "yearly" in ppt_val.lower():
-#                     slot_values["ppt"] = "Annually"
-#                 elif "monthly" in ppt_val.lower():
-#                     slot_values["ppt"] = "Monthly"
-#                 else:
-#                     # Extract number from PPT value (handles "12", "12 ppt", "12 years", etc.)
-#                     numbers = re.findall(r'\d+', ppt_val)
-#                     if numbers:
-#                         ppt_num = int(numbers[0])
-#                         if 1 <= ppt_num <= 40:
-#                             slot_values["ppt"] = str(ppt_num)
-        
-#         return slot_values
-
-#     def validate_first_name(self, value, dispatcher, tracker, domain):
-#         """
-#         This method is called when Rasa needs to validate the first name.
-#         It checks if the user provided all details at once, or just the first name.
-#         If user provided full name like "John Doe", it splits it into first and last name.
-#         """
-#         # Step 1: Check if user provided ALL details in one message (only if there are commas)
-#         latest_message = tracker.latest_message
-#         full_text = latest_message.get("text", "")
-#         if ',' in full_text:
-#             all_slots = self.extract_all_slots_from_message(tracker)
-#             if all_slots:
-#                 return all_slots
-        
-#         # Step 2: Get entities found by NLU
-#         entities = self.extract_entities_from_message(tracker)
-        
-#         # Step 3: If both first and last name found, return both
-#         if "first_name" in entities and "last_name" in entities:
-#             first_name = re.sub(r'[^a-zA-Z\s-]', '', str(entities["first_name"])).strip()
-#             last_name = re.sub(r'[^a-zA-Z\s-]', '', str(entities["last_name"])).strip()
-#             if first_name and last_name:
-#                 return {"first_name": first_name, "last_name": last_name}
-        
-#         # Step 4: If only first name found by NLU, use it
-#         if "first_name" in entities:
-#             cleaned = re.sub(r'[^a-zA-Z\s-]', '', str(entities["first_name"])).strip()
-#             if cleaned:
-#                 return {"first_name": cleaned}
-        
-#         # Step 5: If value has space, it might be full name - split it
-#         if value and isinstance(value, str) and ' ' in value.strip():
-#             name_part = value.split(',')[0].strip() if ',' in value else value.strip()
-#             name_parts = name_part.split()
-#             if len(name_parts) >= 2:
-#                 # Two words = first name and last name
-#                 first_name = re.sub(r'[^a-zA-Z\s-]', '', name_parts[0]).strip()
-#                 last_name = re.sub(r'[^a-zA-Z\s-]', '', name_parts[1]).strip()
-#                 if first_name and last_name:
-#                     return {"first_name": first_name, "last_name": last_name}
-#             elif len(name_parts) == 1:
-#                 # One word = just first name
-#                 first_name = re.sub(r'[^a-zA-Z\s-]', '', name_parts[0]).strip()
-#                 if first_name:
-#                     return {"first_name": first_name}
-        
-#         # Step 6: Clean and return the value as first name
-#         if value:
-#             cleaned_value = re.sub(r'[^a-zA-Z\s-]', '', str(value)).strip()
-#             if cleaned_value:
-#                 return {"first_name": cleaned_value}
-        
-#         return {"first_name": value}
-
-#     def validate_last_name(self, value, dispatcher, tracker, domain):
-#         """
-#         This method validates the last name.
-#         If last name was already set (from first_name validation), it keeps that.
-#         Otherwise, it cleans and validates the provided value.
-#         """
-#         entities = self.extract_entities_from_message(tracker)
-        
-#         # If NLU found last name, use it
-#         if "last_name" in entities:
-#             last_name = re.sub(r'[^a-zA-Z\s-]', '', str(entities["last_name"])).strip()
-#             if last_name:
-#                 return {"last_name": last_name}
-        
-#         # If last name was already set (from first_name validation), keep it
-#         existing_last_name = tracker.get_slot("last_name")
-#         if existing_last_name:
-#             cleaned = re.sub(r'[^a-zA-Z\s-]', '', str(existing_last_name)).strip()
-#             if cleaned:
-#                 return {"last_name": cleaned}
-        
-#         # Clean and return the provided value
-#         if value:
-#             value_str = str(value).split(',')[0].strip() if ',' in str(value) else str(value)
-#             cleaned_value = re.sub(r'[^a-zA-Z\s-]', '', value_str).strip()
-#             if cleaned_value:
-#                 return {"last_name": cleaned_value}
-        
-#         return {"last_name": value}
-
-#     def validate_dob_quotation(self, value, dispatcher, tracker, domain):
-#         """
-#         This method validates the date of birth.
-#         It accepts dates in formats like: 1987/04/06, 1987-04-06, 1987 04 june, etc.
-#         It converts everything to YYYY-MM-DD format for the API.
-#         """
-#         entities = self.extract_entities_from_message(tracker)
-#         latest_message = tracker.latest_message
-#         full_text = latest_message.get("text", "")
-        
-#         # Search the full message text for date patterns
-#         dob = None
-#         dob_patterns = [
-#             r'\b(\d{4})[/-](\d{1,2})[/-](\d{1,2})\b',  # YYYY/MM/DD or YYYY-MM-DD
-#             r'\b(\d{4})\s+(\d{1,2})\s+(january|february|march|april|may|june|july|august|september|october|november|december|jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\b',
-#             r'\b(\d{1,2})\s+(january|february|march|april|may|june|july|august|september|october|november|december|jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\s+(\d{4})\b',
-#         ]
-        
-#         for pattern in dob_patterns:
-#             match = re.search(pattern, full_text, re.IGNORECASE)
-#             if match:
-#                 if len(match.groups()) == 3:
-#                     if match.group(3).isdigit():
-#                         # Format: YYYY/MM/DD
-#                         dob = f"{match.group(1)}-{match.group(2).zfill(2)}-{match.group(3).zfill(2)}"
-#                     else:
-#                         # Format: YYYY DD Month
-#                         month_num = self._month_to_num(match.group(3))
-#                         dob = f"{match.group(1)}-{month_num:02d}-{int(match.group(2)):02d}"
-#                 break
-        
-#         # If found in entities, use that
-#         if "dob_quotation" in entities and not dob:
-#             dob = str(entities["dob_quotation"])
-        
-#         # If still no dob found, use the value provided
-#         if not dob and value:
-#             dob = str(value)
-        
-#         # Clean DOB - extract only date pattern, stop at comma
-#         if dob and isinstance(dob, str):
-#             if ',' in dob:
-#                 dob = dob.split(',')[0].strip()
-#             # Extract date pattern
-#             date_match = re.search(r'(\d{4})[/-](\d{1,2})[/-](\d{1,2})', dob)
-#             if date_match:
-#                 dob = f"{date_match.group(1)}-{date_match.group(2).zfill(2)}-{date_match.group(3).zfill(2)}"
-#             elif not re.match(r'\d{4}-\d{2}-\d{2}', dob):
-#                 # Try natural language dates like "1987 04 june"
-#                 date_patterns = [
-#                     (r'(\d{4})\s+(\d{1,2})\s+(january|february|march|april|may|june|july|august|september|october|november|december|jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)', 
-#                      lambda m: f"{m.group(1)}-{self._month_to_num(m.group(3)):02d}-{int(m.group(2)):02d}"),
-#                     (r'(\d{1,2})\s+(january|february|march|april|may|june|july|august|september|october|november|december|jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\s+(\d{4})',
-#                      lambda m: f"{m.group(3)}-{self._month_to_num(m.group(2)):02d}-{int(m.group(1)):02d}"),
-#                 ]
-#                 for pattern, converter in date_patterns:
-#                     match = re.search(pattern, dob, re.IGNORECASE)
-#                     if match:
-#                         dob = converter(match)
-#                         break
-        
-#         # Only return if we found a valid date (YYYY-MM-DD format)
-#         if dob and re.match(r'\d{4}-\d{2}-\d{2}', dob):
-#             return {"dob_quotation": dob}
-        
-#         return {"dob_quotation": value}
-
-#     def _month_to_num(self, month_str):
-#         """
-#         Helper method: Converts month name (like "january" or "jan") to number (1-12).
-#         Used when user types dates like "1987 04 june".
-#         """
-#         months = {
-#             'january': 1, 'jan': 1,
-#             'february': 2, 'feb': 2,
-#             'march': 3, 'mar': 3,
-#             'april': 4, 'apr': 4,
-#             'may': 5,
-#             'june': 6, 'jun': 6,
-#             'july': 7, 'jul': 7,
-#             'august': 8, 'aug': 8,
-#             'september': 9, 'sep': 9,
-#             'october': 10, 'oct': 10,
-#             'november': 11, 'nov': 11,
-#             'december': 12, 'dec': 12
-#         }
-#         return months.get(month_str.lower(), 1)
-
-#     def validate_gender(self, value, dispatcher, tracker, domain):
-#         """
-#         Validates gender. Accepts "male", "m", "female", "f".
-#         Returns "Male" or "Female" in proper format.
-#         """
-#         entities = self.extract_entities_from_message(tracker)
-#         if "gender" in entities:
-#             gender = str(entities["gender"]).lower()
-#             if ',' in gender:
-#                 gender = gender.split(',')[0].strip()
-#             if gender in ["male", "m"]:
-#                 return {"gender": "Male"}
-#             elif gender in ["female", "f"]:
-#                 return {"gender": "Female"}
-#             return {"gender": str(entities["gender"]).capitalize()}
-        
-#         if value:
-#             cleaned_value = str(value).split(',')[0].strip().lower()
-#             if cleaned_value in ["male", "m"]:
-#                 return {"gender": "Male"}
-#             elif cleaned_value in ["female", "f"]:
-#                 return {"gender": "Female"}
-#             return {"gender": str(value).split(',')[0].strip().capitalize()}
-        
-#         return {"gender": value}
-
-#     def validate_marital_status(self, value, dispatcher, tracker, domain):
-#         """
-#         Validates marital status. Accepts "married", "m", "single", "s".
-#         Returns "Married" or "Single" in proper format.
-#         """
-#         entities = self.extract_entities_from_message(tracker)
-#         if "marital_status" in entities:
-#             status = str(entities["marital_status"]).lower()
-#             if ',' in status:
-#                 status = status.split(',')[0].strip()
-#             if status in ["married", "m"]:
-#                 return {"marital_status": "Married"}
-#             elif status in ["single", "s"]:
-#                 return {"marital_status": "Single"}
-#             return {"marital_status": str(entities["marital_status"]).capitalize()}
-        
-#         if value:
-#             cleaned_value = str(value).split(',')[0].strip().capitalize()
-#             if cleaned_value in ["Married", "Single", "Divorced", "Widowed"]:
-#                 return {"marital_status": cleaned_value}
-        
-#         return {"marital_status": value}
-
-#     def validate_tobacco(self, value, dispatcher, tracker, domain):
-#         """
-#         Validates tobacco consumption. Accepts "yes", "y", "no", "n", "don't", etc.
-#         Returns "Yes" or "No" in proper format.
-#         """
-#         entities = self.extract_entities_from_message(tracker)
-#         if "tobacco" in entities:
-#             tobacco_val = str(entities["tobacco"]).lower()
-#             if ',' in tobacco_val:
-#                 tobacco_val = tobacco_val.split(',')[0].strip()
-#             if tobacco_val in ["yes", "y", "do", "does"]:
-#                 return {"tobacco": "Yes"}
-#             elif tobacco_val in ["no", "n", "don't", "dont", "doesn't", "does not", "do not"]:
-#                 return {"tobacco": "No"}
-#             return {"tobacco": str(entities["tobacco"])}
-        
-#         if value:
-#             cleaned_value = str(value).split(',')[0].strip().lower()
-#             if cleaned_value in ["yes", "y", "do", "does"]:
-#                 return {"tobacco": "Yes"}
-#             elif cleaned_value in ["no", "n", "don't", "dont", "doesn't", "does not", "do not"]:
-#                 return {"tobacco": "No"}
-#             return {"tobacco": str(value).split(',')[0].strip()}
-        
-#         return {"tobacco": value}
-
-#     def validate_sum_assured(self, value, dispatcher, tracker, domain):
-#         """
-#         Validates sum assured amount. Minimum is 5 lakhs (500000).
-#         Extracts numbers from the input and validates the amount.
-#         """
-#         entities = self.extract_entities_from_message(tracker)
-        
-#         # Helper function to extract and validate sum assured
-#         def extract_sum_assured(val_str):
-#             if ',' in val_str:
-#                 val_str = val_str.split(',')[0].strip()
-#             numbers = re.findall(r'\d+', val_str)
-#             if numbers:
-#                 try:
-#                     sa_value = float(''.join(numbers))
-#                     if sa_value < 500000:
-#                         dispatcher.utter_message("Minimum sum assured is 5 lakhs.")
-#                         return None
-#                     return sa_value
-#                 except (ValueError, TypeError):
-#                     pass
-#             return None
-        
-#         if "sum_assured" in entities:
-#             sa_value = extract_sum_assured(str(entities["sum_assured"]))
-#             if sa_value is not None:
-#                 return {"sum_assured": sa_value}
-        
-#         if value:
-#             sa_value = extract_sum_assured(str(value))
-#             if sa_value is not None:
-#                 return {"sum_assured": sa_value}
-#             return {"sum_assured": None}
-        
-#         return {"sum_assured": value}
-
-#     def validate_term(self, value, dispatcher, tracker, domain):
-#         """
-#         Validates policy term. Must be between 5 and 40 years.
-#         Returns as integer (not float) to avoid API issues.
-#         """
-#         # Get requested slot - if form is asking for PPT, don't process term value
-#         requested_slot = tracker.get_slot("requested_slot")
-#         if requested_slot == "ppt":
-#             # Form is asking for PPT, don't change term
-#             existing_term = tracker.get_slot("term")
-#             return {"term": existing_term} if existing_term is not None else {}
-        
-#         # Process value only if form is asking for term
-#         if value:
-#             try:
-#                 numbers = re.findall(r'\d+', str(value))
-#                 if numbers:
-#                     term_value = int(numbers[0])
-#                     if 5 <= term_value <= 40:
-#                         return {"term": term_value}
-#                     else:
-#                         dispatcher.utter_message("Term must be between 5 and 40 years.")
-#                         return {"term": None}
-#             except (ValueError, TypeError):
-#                 pass
-        
-#         existing_term = tracker.get_slot("term")
-#         if existing_term is not None:
-#             return {"term": existing_term}
-        
-#         return {"term": value}
-
-#     def validate_ppt(self, value, dispatcher, tracker, domain):
-#         """
-#         Validates Premium Payment Term (PPT).
-#         Accepts numbers (like "10") or keywords (like "annually", "monthly").
-#         """
-#         # Get requested slot - if form is asking for term, don't process PPT value
-#         requested_slot = tracker.get_slot("requested_slot")
-#         if requested_slot == "term":
-#             # Form is asking for term, don't change PPT
-#             existing_ppt = tracker.get_slot("ppt")
-#             return {"ppt": existing_ppt} if existing_ppt is not None else {}
-        
-#         # Process value only if form is asking for PPT
-#         if value:
-#             value_str = str(value).lower().strip()
-#             if "annually" in value_str or "yearly" in value_str:
-#                 return {"ppt": "Annually"}
-#             elif "monthly" in value_str:
-#                 return {"ppt": "Monthly"}
-#             elif "quarterly" in value_str:
-#                 return {"ppt": "Quarterly"}
-#             else:
-#                 try:
-#                     numbers = re.findall(r'\d+', str(value))
-#                     if numbers:
-#                         ppt_value = int(numbers[0])
-#                         if 1 <= ppt_value <= 40:
-#                             return {"ppt": str(ppt_value)}
-#                         else:
-#                             dispatcher.utter_message("PPT must be between 1 and 40 years.")
-#                             return {"ppt": None}
-#                 except (ValueError, TypeError):
-#                     pass
-        
-#         existing_ppt = tracker.get_slot("ppt")
-#         if existing_ppt:
-#             return {"ppt": existing_ppt}
-        
-#         return {"ppt": value}
-
-# class ActionStopPremium(Action):
-#     """
-#     This action is called when the user says "no" or "stop" to premium calculation.
-#     It simply tells the user that the process is stopped.
-#     """
-    
-#     def name(self) -> str:
-#         return "action_stop_premium"
-    
-#     def run(self, dispatcher: CollectingDispatcher,
-#             tracker: Tracker,
-#             domain: DomainDict) -> List[Dict[str, Any]]:
-        
-#         dispatcher.utter_message(text="Okay, I've stopped the premium calculation. If you need a quotation later, just let me know!")
-#         return [SlotSet("awaiting_premium_confirmation", False)]
-
-
-# class ActionSubmitQuotationForm(Action):
-#     """
-#     This action is called when the form has collected all required information.
-#     It shows a summary of what the user provided and asks if they want to proceed
-#     to calculate the premium.
-#     """
-
-#     def name(self) -> str:
-#         return "action_submit_quotation_form"
-
-#     def run(self, dispatcher, tracker, domain):
-#         product = "ICICI PRU IPROTECT SMART PLUS"
-#         mode = "Annually"
-
-#         dispatcher.utter_message(
-#         text=(
-#             "*Quotation Summary*\n"
-#         f"*Product:* {product}\n"
-#         f"*Sum Assured:* {tracker.get_slot('sum_assured')}\n"
-#         f"*Term:* {tracker.get_slot('term')} years\n"
-#         f"*Tobacco:* {tracker.get_slot('tobacco')}\n"
-#         f"*Mode:* {mode}\n"
-#         "*Should I proceed to get your premium?* (proceed/stop)"
-#     )
-# )
-#         # Set flag to indicate we're waiting for user's confirmation
-#         return [SlotSet("awaiting_premium_confirmation", True)]
-
-
-# class ActionCallPremiumApi(Action):
-#     """
-#     This is the main action that calls the external API to calculate the premium.
-#     It collects all the information from slots, cleans it, formats it for the API,
-#     makes the API call, and then displays the result to the user.
-#     """
-
-#     def name(self) -> str:
-#         return "action_call_premium_api"
-    
-#     def _convert_to_int_string(self, value, default="0"):
-#         """
-#         Helper method: Converts any value (int, float, string) to an integer string.
-#         The API requires integer strings, not floats, so this prevents errors like "5.0" being invalid.
-#         """
-#         if value is None:
-#             return default
-#         try:
-#             if isinstance(value, str):
-#                 cleaned = re.sub(r'[^\d.]', '', value)
-#                 if cleaned:
-#                     return str(int(float(cleaned)))
-#             else:
-#                 return str(int(float(value)))
-#         except (ValueError, TypeError):
-#             return default
-#         return default
-
-#     def run(self, dispatcher, tracker, domain):
-#         # Step 1: Collect and clean all user inputs from slots
-#         dob = tracker.get_slot("dob_quotation")
-#         if dob:
-#             dob = dob.replace("/", "-").strip()
-        
-#         first_name = tracker.get_slot("first_name")
-#         last_name = tracker.get_slot("last_name")
-#         if first_name:
-#             first_name = re.sub(r'[^a-zA-Z\s-]', '', str(first_name)).strip()
-#         if last_name:
-#             last_name = re.sub(r'[^a-zA-Z\s-]', '', str(last_name)).strip()
-        
-#         marital_status = tracker.get_slot("marital_status")
-#         if marital_status and ',' in str(marital_status):
-#             marital_status = str(marital_status).split(',')[0].strip()
-        
-#         gender = tracker.get_slot("gender")
-#         if gender and ',' in str(gender):
-#             gender = str(gender).split(',')[0].strip()
-
-#         # Step 2: Build the API request payload (data structure the API expects)
-#         data = {
-#             "Root": {
-#                 "FirstName": first_name or "",
-#                 "LastName": last_name or "",
-#                 "DateOfBirth": dob,
-#                 "Gender": gender or "",
-#                 "MaritalStatus": marital_status or "",
-#                 "PolicyholderFName": "",
-#                 "PolicyholderLName": "",
-#                 "PolicyholderDOB": "",
-#                 "PolicyholderGender": "",
-#                 "isNRI": "false",
-#                 "isPolicyholder": "",
-#                 "Staff": "0",
-#                 "ProductDetails": {
-#                     "Product": {
-#                         "ProductType": "TRADITIONAL",
-#                         "ProductName": "ICICI PRU IPROTECT SMART PLUS",
-#                         "ProductCode": "T74",
-#                         "ModeOfPayment": "Annually",
-#                         "ModalPremium": "0",
-#                         "AnnualPremium": "0",
-#                         "Term": self._convert_to_int_string(tracker.get_slot("term"), "0"),
-#                         "DeathBenefit": self._convert_to_int_string(tracker.get_slot("sum_assured"), "0"),
-#                         "PremiumPaymentTerm": str(tracker.get_slot("ppt")) if tracker.get_slot("ppt") else "0",
-#                         "GstWaiver": "No",
-#                         "Tobacco": "1" if str(tracker.get_slot("tobacco")).lower() == "yes" else "0",
-#                         "SalesChannel": "0",
-#                         "PremiumPaymentOption": "Limited Pay",
-#                         "RiderDetails": {
-#                             "Rider": [
-#                                 {
-#                                     "Name": "ADBW",
-#                                     "SA": "1000000",
-#                                     "Term": "30",
-#                                     "RiderOption": "",
-#                                     "Percentage": "0",
-#                                     "RiderPPT": "15"
-#                                 }
-#                             ]  
-#                         },
-#                         "LifeCoverOption": "Life Plus",
-#                         "DeathBenefitOption": "Lump-Sum",
-#                         "LumpsumPercentage": "0",
-#                         "IPSDiscount": "True",
-#                         "Occupation": "SPVT",
-#                         "ApplicationNumber": "",
-#                         "PayoutTerm": "0",
-#                         "POSFlag": "No"
-#                     }
-#                 }
-#             }
-#         }
-
-#         # Step 3: Add any additional riders if user provided them
-#         riders = tracker.get_slot("rider_name")
-#         rider_sa = tracker.get_slot("rider_sa")
-#         term = self._convert_to_int_string(tracker.get_slot("term"), "30")
-#         ppt = str(tracker.get_slot("ppt")) if tracker.get_slot("ppt") else "15"
-
-#         if riders and rider_sa:
-#             for i, r in enumerate(riders):
-#                 data["Root"]["ProductDetails"]["Product"]["RiderDetails"]["Rider"].append({
-#                     "Name": r,
-#                     "SA": str(rider_sa[i]) if i < len(rider_sa) and rider_sa[i] else "0",
-#                     "Term": term,
-#                     "RiderOption": tracker.get_slot("rider_option") or "",
-#                     "Percentage": "0",
-#                     "RiderPPT": ppt
-#                 })
-
-#         # Step 4: Call the API
-#         try:
-#             token = get_cached_token()
-            
-#             # Print token, payload, and response for debugging
-#             print("\n" + "="*80)
-#             print("API CALL DEBUG INFO")
-#             print("="*80)
-#             print(f"\nTOKEN: {token}")
-#             print(f"\nPAYLOAD (sent to API):")
-#             print(json.dumps(data, indent=2, ensure_ascii=False))
-#             print("\n" + "-"*80)
-            
-#             result = call_main_api(API_URL, token, data)
-            
-#             print(f"\nRESPONSE (received from API):")
-#             print(json.dumps(result, indent=2, ensure_ascii=False))
-#             print("="*80 + "\n")
-            
-#         except Exception as e:
-#             print(f"\n❌ API CALL ERROR: {str(e)}\n")
-#             dispatcher.utter_message(f"❌ Failed to get premium: {str(e)}")
-#             return [SlotSet("awaiting_premium_confirmation", False)]
-
-#         # Step 5: Handle API response - check for errors
-#         if isinstance(result, dict):
-#             error_code = result.get("ErrorCode", "")
-#             error_msg = result.get("ErrorMessage", "")
-            
-#             # E00 with "Success" means success, not an error
-#             is_success = (error_code == "E00" and error_msg == "Success")
-            
-#             # If there's an error code and it's not success, show error message
-#             if error_code and not is_success:
-#                 dispatcher.utter_message(
-#                     text=f"Unable to generate quotation (Error {error_code}): {error_msg or 'Unknown error'}"
-#                 )
-#                 return [SlotSet("awaiting_premium_confirmation", False)]
-            
-#             # Check if premium information exists in response
-#             if "PremiumSummary" not in result:
-#                 error_msg = result.get("ErrorMessage", "Quotation received, but premium information is missing.")
-#                 dispatcher.utter_message(f"❌ {error_msg}")
-#                 return [SlotSet("awaiting_premium_confirmation", False)]
-
-#         # Step 6: Extract and display the premium
-#         try:
-#             premium = result["PremiumSummary"]["TotalFirstPremium"]
-#         except (KeyError, TypeError):
-#             error_msg = result.get("ErrorMessage", "Quotation received, but premium key is missing.") if isinstance(result, dict) else "Quotation received, but premium key is missing."
-#             dispatcher.utter_message(f"❌ {error_msg}")
-#             return [SlotSet("awaiting_premium_confirmation", False)]
-        
-#         policy_term = data["Root"]["ProductDetails"]["Product"]["Term"]
-#         ppt = data["Root"]["ProductDetails"]["Product"]["PremiumPaymentTerm"]
-#         sum_assured = data["Root"]["ProductDetails"]["Product"]["DeathBenefit"]
-
-#         # Step 7: Show the final premium result to user
-#         dispatcher.utter_message(
-#             text=(
-#                 f"Quotation Summary: Total Premium (with tax): ₹{premium} per year\n"
-#                 f"Coverage Summary\n"
-#                  f"- Sum Assured: ₹{sum_assured}\n"
-#                 f"- Policy Term: {policy_term} years\n"
-#                 f"- Premium Payment Term (PPT): {ppt} years\n\n"
-#             )
-#         )
-
-#         return [SlotSet("awaiting_premium_confirmation", False)]
-
 
 """
 Insurance Quotation Bot - Custom Actions
 This file contains all the custom actions that the bot performs when collecting quotation details.
+
+EXECUTION FLOW:
+1. User requests quotation -> ActionActivateQuotationForm runs
+2. Form starts collecting data -> ValidateQuotationForm.validate_* methods run
+3. When form is complete -> ActionSubmitQuotationForm runs
+4. User confirms -> ActionCallPremiumApi runs to get premium
 """
 
 import re
@@ -976,11 +21,12 @@ from actions.api_utils_noED import get_cached_token, call_main_api
 from rasa_sdk.types import DomainDict
 from actions.properties import API_URL
 
+
 class ActionActivateQuotationForm(Action):
     """
-    This action is called when the user asks for a quotation.
-    If all details are already collected, it directly shows the summary.
-    Otherwise, it shows instructions to collect details.
+    FIRST ACTION: Called when user asks for a quotation.
+    - If all slots are filled: Shows summary directly
+    - Otherwise: Shows instructions to collect details
     """
     
     def name(self) -> str:
@@ -990,14 +36,12 @@ class ActionActivateQuotationForm(Action):
             tracker: Tracker,
             domain: DomainDict) -> List[Dict[str, Any]]:
         
-        # Check if all required slots are already filled
         required_slots = ["first_name", "last_name", "dob_quotation", "gender", 
                          "marital_status", "tobacco", "sum_assured", "term", "ppt"]
         
         all_filled = all(tracker.get_slot(slot) is not None and tracker.get_slot(slot) != "" 
                         for slot in required_slots)
         
-        # If all slots are filled, directly show summary (skip form)
         if all_filled:
             product = "ICICI PRU IPROTECT SMART PLUS"
             mode = "Annually"
@@ -1012,587 +56,135 @@ class ActionActivateQuotationForm(Action):
                     "*Should I proceed to get your premium?* (proceed/stop)"
                 )
             )
-            # Return ActiveLoop(null) to prevent form from activating, and set confirmation flag
             return [
                 ActiveLoop(None),
                 SlotSet("awaiting_premium_confirmation", True)
             ]
         
-        # If slots are not filled, show instructions to collect details
         message = (
             "Great! I'll help you get a quotation. Please provide me with the following details:\n"
             "• Name (First and Last name)\n"
-            "• Date of Birth (e.g., 1987/04/06 or 1987 04 june)\n"
+            "• Date of Birth (e.g., 1987/04/06 or 12 june 1992)\n"
             "• Gender (Male/Female)\n"
             "• Marital Status (Married/Single)\n"
             "• Tobacco consumption (Yes/No)\n"
             "• Policy Term (e.g., 20 years)\n"
-            # "• Premium Payment Term (PPT) (e.g., 10 years)\n"
+            "• Premium Payment Term (PPT) (e.g., 10 years)\n"
             "• Sum Assured (e.g., 5000000)\n"
             "You can provide all these details in a single comma-separated message or can chat.\n"
         )
         dispatcher.utter_message(text=message)
         return []
 
+
 class ValidateQuotationForm(FormValidationAction):
     """
-    This class validates all the information the user provides.
-    When the user types something, Rasa calls these validation methods to check and clean the data.
+    MAIN VALIDATION CLASS: Called by Rasa for each slot validation.
+    
+    EXECUTION ORDER:
+    1. User sends message (single value OR comma-separated)
+    2. Rasa calls validate_* method for requested slot
+    3. validate_* method calls _normalize_comma_input() to clean input
+    4. validate_* method calls _extract_entities() to find all entities
+    5. If comma-separated input detected, _extract_all_slots() extracts everything at once
+    6. Returns validated slot value(s)
     """
 
     def name(self):
         return "validate_quotation_form"
 
-    def extract_entities_from_message(self, tracker):
+    def _normalize_comma_input(self, text: str) -> List[str]:
         """
-        This method tries to find all information from the user's message.
-        First, it checks if Rasa's NLU (Natural Language Understanding) found any entities.
-        If not, it uses regex patterns to search the message text directly.
+        STEP 1: Normalize comma-separated input.
+        - Splits by commas
+        - Removes extra spaces (handles both "value, value" and "value,value")
+        - Returns list of cleaned parts
         """
-        latest_message = tracker.latest_message
-        entities = latest_message.get("entities", [])
-        extracted = {}
+        if not text:
+            return []
         
-        # Step 1: Get entities that Rasa NLU already found (from regex patterns in nlu.yml)
-        for entity in entities:
-            entity_name = entity.get("entity")
-            entity_value = entity.get("value")
-            if entity_name and entity_value:
-                extracted[entity_name] = entity_value
-        
-        # Step 2: If NLU missed something, search the message text directly using regex
-        full_text = latest_message.get("text", "") or ""
-        # For comma-separated inputs, normalize spaces directly after commas
-        # e.g. ", 10" -> ",10" so that number extraction is consistent
-        full_text = re.sub(r',\s+(\d)', r',\1', full_text)
-        text = full_text.lower()
-        
-        # Extract names if not found by NLU
-        # Look for pattern like "John Doe" (two words at the start)
-        if "first_name" not in extracted or "last_name" not in extracted:
-            text_for_names = full_text
-            # If there's a comma, names are usually before the first comma
-            if ',' in text_for_names:
-                text_for_names = text_for_names.split(',')[0]
-            
-            # Match two consecutive words (regex handles case automatically)
-            name_pattern = r'^([a-zA-Z]+)\s+([a-zA-Z]+)\b'
-            name_match = re.search(name_pattern, text_for_names)
-            if name_match:
-                if "first_name" not in extracted:
-                    extracted["first_name"] = name_match.group(1).capitalize()
-                if "last_name" not in extracted:
-                    extracted["last_name"] = name_match.group(2).capitalize()
-        
-        # Extract Date of Birth - try different date formats
-        if "dob_quotation" not in extracted:
-            # 1) YYYY/MM/DD or YYYY-MM-DD
-            m = re.search(r'\b(\d{4})[/-](\d{1,2})[/-](\d{1,2})\b', full_text)
-            if m:
-                year, month, day = m.group(1), m.group(2), m.group(3)
-                extracted["dob_quotation"] = f"{year}-{int(month):02d}-{int(day):02d}"
-            else:
-                # 2) YYYY DD Month (e.g. 1987 04 june)
-                m = re.search(
-                    r'\b(\d{4})\s+(\d{1,2})\s+'
-                    r'(january|february|march|april|may|june|july|august|september|october|november|december|jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\b',
-                    full_text,
-                    re.IGNORECASE,
-                )
-                if m:
-                    year, day, month_name = m.group(1), m.group(2), m.group(3)
-                    month_num = self._month_to_num(month_name)
-                    extracted["dob_quotation"] = f"{year}-{month_num:02d}-{int(day):02d}"
-                else:
-                    # 3) YYYY Month DD (e.g. 1987 june 08)
-                    m = re.search(
-                        r'\b(\d{4})\s+'
-                        r'(january|february|march|april|may|june|july|august|september|october|november|december|jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\s+'
-                        r'(\d{1,2})\b',
-                        full_text,
-                        re.IGNORECASE,
-                    )
-                    if m:
-                        year, month_name, day = m.group(1), m.group(2), m.group(3)
-                        month_num = self._month_to_num(month_name)
-                        extracted["dob_quotation"] = f"{year}-{month_num:02d}-{int(day):02d}"
-                    else:
-                        # 4) DD Month YYYY (e.g. 19 june 1987)
-                        m = re.search(
-                            r'\b(\d{1,2})\s+'
-                            r'(january|february|march|april|may|june|july|august|september|october|november|december|jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\s+'
-                            r'(\d{4})\b',
-                            full_text,
-                            re.IGNORECASE,
-                        )
-                        if m:
-                            day, month_name, year = m.group(1), m.group(2), m.group(3)
-                            month_num = self._month_to_num(month_name)
-                            extracted["dob_quotation"] = f"{year}-{month_num:02d}-{int(day):02d}"
-        
-        # Extract gender - look for "male" or "female" keywords
-        if "gender" not in extracted:
-            if re.search(r'\b(male|m)\b', text):
-                extracted["gender"] = "Male"
-            elif re.search(r'\b(female|f)\b', text):
-                extracted["gender"] = "Female"
-        
-        # Extract marital status - look for "married" or "single"
-        if "marital_status" not in extracted:
-            if re.search(r'\b(married|m)\b', text):
-                extracted["marital_status"] = "Married"
-            elif re.search(r'\b(single|s)\b', text):
-                extracted["marital_status"] = "Single"
-        
-        # Extract tobacco consumption - look for yes/no patterns
-        if "tobacco" not in extracted:
-            if re.search(r',\s*(no|n)\s*,', text) or re.search(r'^no\s*,', text) or re.search(r',\s*no$', text):
-                extracted["tobacco"] = "No"
-            elif re.search(r',\s*(yes|y)\s*,', text) or re.search(r'^yes\s*,', text) or re.search(r',\s*yes$', text):
-                extracted["tobacco"] = "Yes"
-            elif re.search(r'\b(no|don\'t|dont|doesn\'t|does not|do not)\s+tobacco', text):
-                extracted["tobacco"] = "No"
-            elif re.search(r'\b(yes|do)\s+tobacco', text):
-                extracted["tobacco"] = "Yes"
-        
-        # Extract sum assured - look for large numbers (6-12 digits, minimum 5 lakhs)
-        if "sum_assured" not in extracted:
-            sa_pattern = r'\b(\d{6,12})\b'
-            sa_matches = re.findall(sa_pattern, full_text)
-            if sa_matches:
-                for match in reversed(sa_matches):
-                    num = int(match)
-                    if 500000 <= num <= 999999999999:
-                        extracted["sum_assured"] = match
-                        break
-        
-        # Extract policy term - First check for "term" keyword, then position-based
-        if "term" not in extracted:
-            # First, try to find "term" or "policy term" keyword with a number (e.g., "25 term", "25 policy term")
-            # This works even if not comma-separated
-            term_patterns = [
-                r'\b(\d{1,2})\s*(?:years?)?\s*term\b',  # "25 term" or "25 years term"
-                r'\b(\d{1,2})\s*policy\s*term\b',  # "25 policy term"
-                r'term\s*(?:is|of)?\s*(\d{1,2})\s*(?:years?)?\b',  # "term is 25" or "term 25"
-            ]
-            for pattern in term_patterns:
-                term_match = re.search(pattern, full_text, re.IGNORECASE)
-                if term_match:
-                    num = int(term_match.group(1))
-                    if 5 <= num <= 40:
-                        extracted["term"] = str(num)
-                        break
-            
-            # If not found with keyword, try comma-separated extraction (only if 3+ parts)
-            if "term" not in extracted and ',' in full_text and len(full_text.split(',')) >= 3:
-                parts = full_text.split(',')
-                print("\n[DEBUG] Comma-separated parts while extracting TERM:", [p.strip() for p in parts])
-                for part in parts:
-                    part_stripped = part.strip()
-                    # Skip explicit numeric dates like 2002/09/08 or 2002-09-08
-                    if re.search(r'\d{4}[/-]\d{1,2}[/-]\d{1,2}', part_stripped):
-                        continue
-                    # Skip natural language dates like "08 april 2002"
-                    if re.search(
-                        r'\b(january|february|march|april|may|june|july|august|september|october|november|december|jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\b',
-                        part_stripped,
-                        re.IGNORECASE,
-                    ):
-                        continue
-                    # Skip large numbers (sum_assured)
-                    if re.search(r'\d{6,}', part_stripped):
-                        continue
-                    # Skip if this part has "ppt" keyword (we're looking for term)
-                    if re.search(r'\bppt\b', part_stripped, re.IGNORECASE):
-                        continue
-                    # Look for small numbers (5-40) that could be term
-                    numbers = re.findall(r'\b(\d{1,2})\b', part_stripped)
-                    for num_str in numbers:
-                        num = int(num_str)
-                        if 5 <= num <= 40:
-                            extracted["term"] = str(num)
-                            break
-                    if "term" in extracted:
-                        break
-        
-        # Extract Premium Payment Term (PPT) - First check for "ppt" keyword, then position-based
-        if "ppt" not in extracted:
-            # First, try to find "ppt" keyword with a number (e.g., "5 ppt", "5 years ppt", "12 ppt")
-            # This works even if not comma-separated
-            ppt_patterns = [
-                r'\b(\d{1,2})\s*ppt\b',  # "12 ppt" (most specific - number directly before ppt)
-                r'\b(\d{1,2})\s*(?:years?)?\s*ppt\b',  # "5 ppt" or "5 years ppt"
-                r'ppt\s*(?:is|of)?\s*(\d{1,2})\s*(?:years?)?\b',  # "ppt is 5" or "ppt 5"
-                r'premium\s*payment\s*term.*?(\d{1,2})\s*(?:years?)?\b',  # "premium payment term 5"
-            ]
-            for pattern in ppt_patterns:
-                ppt_match = re.search(pattern, full_text, re.IGNORECASE)
-                if ppt_match:
-                    num = int(ppt_match.group(1))
-                    if 1 <= num <= 40:
-                        extracted["ppt"] = str(num)
-                        break
-            
-            # If not found with keyword, try comma-separated extraction (only if 3+ parts)
-            if "ppt" not in extracted and ',' in full_text and len(full_text.split(',')) >= 3:
-                parts = full_text.split(',')
-                print("\n[DEBUG] Comma-separated parts while extracting PPT:", [p.strip() for p in parts])
-                term_value = extracted.get("term")  # Get term value if already extracted
-                # In comma-separated input, PPT is usually the last small number (after term)
-                for part in reversed(parts):
-                    part_stripped = part.strip()
-                    # Skip explicit numeric dates like 2002/09/08 or 2002-09-08
-                    if re.search(r'\d{4}[/-]\d{1,2}[/-]\d{1,2}', part_stripped):
-                        continue
-                    # Skip natural language dates like "08 april 2002"
-                    if re.search(
-                        r'\b(january|february|march|april|may|june|july|august|september|october|november|december|jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\b',
-                        part_stripped,
-                        re.IGNORECASE,
-                    ):
-                        continue
-                    # Skip large numbers (sum_assured)
-                    if re.search(r'\d{6,}', part_stripped):
-                        continue
-                    # Skip if this part has "term" keyword (we're looking for PPT)
-                    if re.search(r'\bterm\b', part_stripped, re.IGNORECASE):
-                        continue
-                    numbers = re.findall(r'\b(\d{1,2})\b', part_stripped)
-                    for num_str in numbers:
-                        num = int(num_str)
-                        if 1 <= num <= 40:
-                            # If term was already extracted and this number is different, it's PPT
-                            if term_value and str(num) != term_value:
-                                extracted["ppt"] = str(num)
-                                break
-                            # If term not extracted yet, this could be PPT (last small number)
-                            elif not term_value:
-                                extracted["ppt"] = str(num)
-                                break
-                    if "ppt" in extracted:
-                        break
-        
-        return extracted
+        # Split by comma and strip each part
+        parts = [part.strip() for part in text.split(',')]
+        # Remove empty parts
+        parts = [p for p in parts if p]
+        return parts
 
-    def extract_all_slots_from_message(self, tracker):
+    def _parse_date_to_iso(self, date_str: str) -> str:
         """
-        This method checks if the user provided ALL details in a single message.
-        If yes, it extracts all of them at once so the form doesn't ask again.
-        CRITICAL: Never overwrites slots that already have values (when answering one by one).
+        STEP 2: Parse any date format and convert to YYYY-MM-DD (ISO format for API).
+        Handles formats like:
+        - 12 june 1992 (DD Month YYYY)
+        - june 12 2002 (Month DD YYYY)
+        - 2000 june 10 (YYYY Month DD)
+        - 2002 12 june (YYYY DD Month)
+        - 1992-06-12 (YYYY-MM-DD)
+        - 1992/06/12 (YYYY/MM/DD)
+        - 12-06-1992 (DD-MM-YYYY)
         """
-        latest_message = tracker.latest_message
-        full_text = latest_message.get("text", "")
+        if not date_str:
+            return None
         
-        # Check if user provided comma-separated values (like "John Doe, 1987-04-06, male, ...")
-        has_commas = ',' in full_text
-        if has_commas:
-            parts_preview = [p.strip() for p in full_text.split(',')]
-            print("\n[DEBUG] Comma-separated parts (extract_all_slots_from_message):", parts_preview)
+        # Clean the date string
+        date_clean = re.sub(r'\s+', ' ', date_str.strip())
         
-        # Get all entities found in the message
-        entities = self.extract_entities_from_message(tracker)
-        slot_values = {}
+        # Try multiple date formats
+        date_formats = [
+            "%d %B %Y",      # 12 june 1992
+            "%d %b %Y",      # 12 Jun 1992
+            "%B %d %Y",      # june 12 2002
+            "%b %d %Y",      # Jun 12 2002
+            "%Y %B %d",      # 2000 june 10
+            "%Y %b %d",      # 2000 Jun 10
+            "%Y %d %B",      # 2002 12 june
+            "%Y %d %b",      # 2002 12 Jun
+            "%Y-%m-%d",      # 1992-06-12
+            "%Y/%m/%d",      # 1992/06/12
+            "%d-%m-%Y",      # 12-06-1992
+            "%d/%m/%Y",      # 12/06/1992
+            "%Y %m %d",      # 1992 06 12
+            "%d %m %Y",      # 12 06 1992
+        ]
         
-        # Count how many different pieces of information we found
-        entity_count = sum(1 for key in ["first_name", "last_name", "dob_quotation", "gender", 
-                                        "marital_status", "tobacco", "sum_assured", "term", "ppt"] 
-                          if key in entities)
+        for fmt in date_formats:
+            try:
+                parsed_date = datetime.strptime(date_clean, fmt).date()
+                return parsed_date.strftime("%Y-%m-%d")
+            except ValueError:
+                continue
         
-        # If user provided 2+ pieces of info OR used commas, they likely gave everything at once
-        if has_commas or entity_count >= 2:
-            # CRITICAL: Only set slots that are currently None/empty
-            # Never overwrite slots that already have values (user answered one by one)
-            
-            if "first_name" in entities and not tracker.get_slot("first_name"):
-                slot_values["first_name"] = re.sub(r'[^a-zA-Z\s-]', '', str(entities["first_name"])).strip()
-            if "last_name" in entities and not tracker.get_slot("last_name"):
-                slot_values["last_name"] = re.sub(r'[^a-zA-Z\s-]', '', str(entities["last_name"])).strip()
-            
-            if "dob_quotation" in entities and not tracker.get_slot("dob_quotation"):
-                dob = str(entities["dob_quotation"])
-                if ',' in dob:
-                    dob = dob.split(',')[0].strip()
-                date_match = re.search(r'(\d{4})[/-](\d{1,2})[/-](\d{1,2})', dob)
-                if date_match:
-                    slot_values["dob_quotation"] = f"{date_match.group(1)}-{date_match.group(2).zfill(2)}-{date_match.group(3).zfill(2)}"
-            
-            if "gender" in entities and not tracker.get_slot("gender"):
-                gender = str(entities["gender"]).lower()
-                if ',' in gender:
-                    gender = gender.split(',')[0].strip()
-                slot_values["gender"] = "Male" if gender in ["male", "m"] else "Female" if gender in ["female", "f"] else gender.capitalize()
-            
-            if "marital_status" in entities and not tracker.get_slot("marital_status"):
-                status = str(entities["marital_status"]).lower()
-                if ',' in status:
-                    status = status.split(',')[0].strip()
-                # Ignore clearly invalid numeric values like years (e.g. "2003")
-                if not re.fullmatch(r"\d{2,4}", status):
-                    slot_values["marital_status"] = (
-                        "Married" if status in ["married", "m"]
-                        else "Single" if status in ["single", "s"]
-                        else status.capitalize()
-                    )
-            
-            if "tobacco" in entities and not tracker.get_slot("tobacco"):
-                tobacco_val = str(entities["tobacco"]).lower()
-                if ',' in tobacco_val:
-                    tobacco_val = tobacco_val.split(',')[0].strip()
-                slot_values["tobacco"] = "Yes" if tobacco_val in ["yes", "y", "do", "does"] else "No" if tobacco_val in ["no", "n", "don't", "dont"] else tobacco_val
-            
-            if "sum_assured" in entities and not tracker.get_slot("sum_assured"):
-                sa_str = str(entities["sum_assured"])
-                if ',' in sa_str:
-                    sa_str = sa_str.split(',')[0].strip()
-                numbers = re.findall(r'\d+', sa_str)
-                if numbers:
-                    sa_value = float(''.join(numbers))
-                    if sa_value >= 500000:
-                        slot_values["sum_assured"] = sa_value
-            
-            # Only set term if it's currently None/empty
-            if "term" in entities and not tracker.get_slot("term"):
-                term_str = str(entities["term"])
-                if ',' in term_str:
-                    term_str = term_str.split(',')[0].strip()
-                numbers = re.findall(r'\d+', term_str)
-                if numbers:
-                    term_value = int(float(numbers[0]))
-                    if 5 <= term_value <= 40:
-                        slot_values["term"] = term_value
-            
-            # Only set PPT if it's currently None/empty
-            if "ppt" in entities and not tracker.get_slot("ppt"):
-                ppt_val = str(entities["ppt"])
-                if ',' in ppt_val:
-                    ppt_val = ppt_val.split(',')[0].strip()
-                # Check for keywords first
-                if "annually" in ppt_val.lower() or "yearly" in ppt_val.lower():
-                    slot_values["ppt"] = "Annually"
-                elif "monthly" in ppt_val.lower():
-                    slot_values["ppt"] = "Monthly"
-                else:
-                    # Extract number from PPT value (handles "12", "12 ppt", "12 years", etc.)
-                    numbers = re.findall(r'\d+', ppt_val)
-                    if numbers:
-                        ppt_num = int(numbers[0])
-                        if 1 <= ppt_num <= 40:
-                            slot_values["ppt"] = str(ppt_num)
+        # Fallback: Try regex patterns for natural language dates
+        # Pattern: YYYY DD Month (e.g., 1992 12 june)
+        match = re.search(
+            r'\b(\d{4})\s+(\d{1,2})\s+(january|february|march|april|may|june|july|august|september|october|november|december|jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\b',
+            date_clean,
+            re.IGNORECASE
+        )
+        if match:
+            year, day, month_name = match.group(1), match.group(2), match.group(3)
+            month_num = self._month_to_num(month_name)
+            return f"{year}-{month_num:02d}-{int(day):02d}"
         
-        return slot_values
+        # Pattern: DD Month YYYY (e.g., 12 june 1992)
+        match = re.search(
+            r'\b(\d{1,2})\s+(january|february|march|april|may|june|july|august|september|october|november|december|jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\s+(\d{4})\b',
+            date_clean,
+            re.IGNORECASE
+        )
+        if match:
+            day, month_name, year = match.group(1), match.group(2), match.group(3)
+            month_num = self._month_to_num(month_name)
+            return f"{year}-{month_num:02d}-{int(day):02d}"
+        
+        # Pattern: YYYY-MM-DD or YYYY/MM/DD
+        match = re.search(r'\b(\d{4})[/-](\d{1,2})[/-](\d{1,2})\b', date_clean)
+        if match:
+            year, month, day = match.group(1), match.group(2), match.group(3)
+            return f"{year}-{int(month):02d}-{int(day):02d}"
+        
+        return None
 
-    def validate_first_name(self, value, dispatcher, tracker, domain):
-        """
-        This method is called when Rasa needs to validate the first name.
-        It checks if the user provided all details at once, or just the first name.
-        If user provided full name like "John Doe", it splits it into first and last name.
-        """
-        # Step 1: Check if user provided ALL details in one message (only if there are commas)
-        latest_message = tracker.latest_message
-        full_text = latest_message.get("text", "")
-        if ',' in full_text:
-            all_slots = self.extract_all_slots_from_message(tracker)
-            if all_slots:
-                return all_slots
-        
-        # Step 2: Get entities found by NLU
-        entities = self.extract_entities_from_message(tracker)
-        
-        # Step 3: If both first and last name found, return both
-        if "first_name" in entities and "last_name" in entities:
-            first_name = re.sub(r'[^a-zA-Z\s-]', '', str(entities["first_name"])).strip()
-            last_name = re.sub(r'[^a-zA-Z\s-]', '', str(entities["last_name"])).strip()
-            if first_name and last_name:
-                return {"first_name": first_name, "last_name": last_name}
-        
-        # Step 4: If only first name found by NLU, use it
-        if "first_name" in entities:
-            cleaned = re.sub(r'[^a-zA-Z\s-]', '', str(entities["first_name"])).strip()
-            if cleaned:
-                return {"first_name": cleaned}
-        
-        # Step 5: If value has space, it might be full name - split it
-        if value and isinstance(value, str) and ' ' in value.strip():
-            name_part = value.split(',')[0].strip() if ',' in value else value.strip()
-            name_parts = name_part.split()
-            if len(name_parts) >= 2:
-                # Two words = first name and last name
-                first_name = re.sub(r'[^a-zA-Z\s-]', '', name_parts[0]).strip()
-                last_name = re.sub(r'[^a-zA-Z\s-]', '', name_parts[1]).strip()
-                if first_name and last_name:
-                    return {"first_name": first_name, "last_name": last_name}
-            elif len(name_parts) == 1:
-                # One word = just first name
-                first_name = re.sub(r'[^a-zA-Z\s-]', '', name_parts[0]).strip()
-                if first_name:
-                    return {"first_name": first_name}
-        
-        # Step 6: Clean and return the value as first name
-        if value:
-            cleaned_value = re.sub(r'[^a-zA-Z\s-]', '', str(value)).strip()
-            if cleaned_value:
-                return {"first_name": cleaned_value}
-        
-        return {"first_name": value}
-
-    def validate_last_name(self, value, dispatcher, tracker, domain):
-        """
-        This method validates the last name.
-        If last name was already set (from first_name validation), it keeps that.
-        Otherwise, it cleans and validates the provided value.
-        """
-        entities = self.extract_entities_from_message(tracker)
-        
-        # If NLU found last name, use it
-        if "last_name" in entities:
-            last_name = re.sub(r'[^a-zA-Z\s-]', '', str(entities["last_name"])).strip()
-            if last_name:
-                return {"last_name": last_name}
-        
-        # If last name was already set (from first_name validation), keep it
-        existing_last_name = tracker.get_slot("last_name")
-        if existing_last_name:
-            cleaned = re.sub(r'[^a-zA-Z\s-]', '', str(existing_last_name)).strip()
-            if cleaned:
-                return {"last_name": cleaned}
-        
-        # Clean and return the provided value
-        if value:
-            value_str = str(value).split(',')[0].strip() if ',' in str(value) else str(value)
-            cleaned_value = re.sub(r'[^a-zA-Z\s-]', '', value_str).strip()
-            if cleaned_value:
-                return {"last_name": cleaned_value}
-        
-        return {"last_name": value}
-
-    def validate_dob_quotation(self, value, dispatcher, tracker, domain):
-        """
-        This method validates the date of birth.
-        It accepts dates in formats like: 1987/04/06, 1987-04-06, 1987 04 june, etc.
-        It converts everything to YYYY-MM-DD format for the API.
-        """
-        entities = self.extract_entities_from_message(tracker)
-        latest_message = tracker.latest_message
-        full_text = latest_message.get("text", "")
-        
-        # Search the full message text for date patterns
-        dob = None
-
-        # 1) YYYY/MM/DD or YYYY-MM-DD
-        m = re.search(r'\b(\d{4})[/-](\d{1,2})[/-](\d{1,2})\b', full_text)
-        if m:
-            year, month, day = m.group(1), m.group(2), m.group(3)
-            dob = f"{year}-{int(month):02d}-{int(day):02d}"
-        else:
-            # 2) YYYY DD Month (e.g. 1987 04 june)
-            m = re.search(
-                r'\b(\d{4})\s+(\d{1,2})\s+'
-                r'(january|february|march|april|may|june|july|august|september|october|november|december|jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\b',
-                full_text,
-                re.IGNORECASE,
-            )
-            if m:
-                year, day, month_name = m.group(1), m.group(2), m.group(3)
-                month_num = self._month_to_num(month_name)
-                dob = f"{year}-{month_num:02d}-{int(day):02d}"
-            else:
-                # 3) YYYY Month DD (e.g. 1987 june 08)
-                m = re.search(
-                    r'\b(\d{4})\s+'
-                    r'(january|february|march|april|may|june|july|august|september|october|november|december|jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\s+'
-                    r'(\d{1,2})\b',
-                    full_text,
-                    re.IGNORECASE,
-                )
-                if m:
-                    year, month_name, day = m.group(1), m.group(2), m.group(3)
-                    month_num = self._month_to_num(month_name)
-                    dob = f"{year}-{month_num:02d}-{int(day):02d}"
-                else:
-                    # 4) DD Month YYYY (e.g. 19 june 1987)
-                    m = re.search(
-                        r'\b(\d{1,2})\s+'
-                        r'(january|february|march|april|may|june|july|august|september|october|november|december|jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\s+'
-                        r'(\d{4})\b',
-                        full_text,
-                        re.IGNORECASE,
-                    )
-                    if m:
-                        day, month_name, year = m.group(1), m.group(2), m.group(3)
-                        month_num = self._month_to_num(month_name)
-                        dob = f"{year}-{month_num:02d}-{int(day):02d}"
-        
-        # If found in entities, use that
-        if "dob_quotation" in entities and not dob:
-            dob = str(entities["dob_quotation"])
-        
-        # If still no dob found, use the value provided
-        if not dob and value:
-            dob = str(value)
-        
-        # Clean DOB and try to parse multiple common formats, then normalise to YYYY-MM-DD
-        if dob and isinstance(dob, str):
-            # Use only the first part before any comma
-            if ',' in dob:
-                dob = dob.split(',')[0].strip()
-
-            # Normalise whitespace
-            dob_clean = re.sub(r'\s+', ' ', dob.strip())
-
-            # Try several typical date formats:
-            # - 03 june 2002 / 03 Jun 2002  -> "%d %B %Y", "%d %b %Y"
-            # - 2002 june 03 / 2002 Jun 03  -> "%Y %B %d", "%Y %b %d"
-            # - 2002/09/06, 2002-09-06      -> "%Y/%m/%d", "%Y-%m-%d"
-            parsed_successfully = False
-            for fmt in [
-                "%d %B %Y",
-                "%d %b %Y",
-                "%Y %B %d",
-                "%Y %b %d",
-                "%Y/%m/%d",
-                "%Y-%m-%d",
-            ]:
-                try:
-                    parsed_date = datetime.strptime(dob_clean, fmt).date()
-                    print("Converting str into date: ",parsed_date)
-                    dob = parsed_date.strftime("%Y-%m-%d")
-                    print("printing final formated dob: ",dob)
-                    parsed_successfully = True
-                    break
-                except ValueError:
-                    continue
-
-            # Fallback to older regex-based handling if none of the formats matched
-            if not parsed_successfully and not re.match(r'\d{4}-\d{2}-\d{2}', dob_clean):
-                # Extract date pattern like 2002/09/06 or 2002-09-06
-                date_match = re.search(r'(\d{4})[/-](\d{1,2})[/-](\d{1,2})', dob_clean)
-                if date_match:
-                    dob = f"{date_match.group(1)}-{date_match.group(2).zfill(2)}-{date_match.group(3).zfill(2)}"
-                else:
-                    # Try natural language dates like "1987 04 june" or "03 june 1987"
-                    date_patterns = [
-                        (r'(\d{4})\s+(\d{1,2})\s+(january|february|march|april|may|june|july|august|september|october|november|december|jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)',
-                         lambda m: f"{m.group(1)}-{self._month_to_num(m.group(3)):02d}-{int(m.group(2)):02d}"),
-                        (r'(\d{1,2})\s+(january|february|march|april|may|june|july|august|september|october|november|december|jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\s+(\d{4})',
-                         lambda m: f"{m.group(3)}-{self._month_to_num(m.group(2)):02d}-{int(m.group(1)):02d}"),
-                    ]
-                    for pattern, converter in date_patterns:
-                        match = re.search(pattern, dob_clean, re.IGNORECASE)
-                        if match:
-                            dob = converter(match)
-                            break
-        
-        # Only return if we found a valid date (YYYY-MM-DD format)
-        if dob and isinstance(dob, str) and re.match(r'\d{4}-\d{2}-\d{2}', dob):
-            return {"dob_quotation": dob}
-        
-        return {"dob_quotation": value}
-
-    def _month_to_num(self, month_str):
-        """
-        Helper method: Converts month name (like "january" or "jan") to number (1-12).
-        Used when user types dates like "1987 04 june".
-        """
+    def _month_to_num(self, month_str: str) -> int:
+        """Helper: Convert month name to number (1-12)."""
         months = {
             'january': 1, 'jan': 1,
             'february': 2, 'feb': 2,
@@ -1609,211 +201,547 @@ class ValidateQuotationForm(FormValidationAction):
         }
         return months.get(month_str.lower(), 1)
 
+    def _extract_entities(self, tracker: Tracker) -> Dict[str, Any]:
+        """
+        STEP 3: Extract all entities from user message.
+        - First gets entities from Rasa NLU
+        - Then uses regex to find missing entities
+        - Returns dictionary of extracted entities
+        """
+        latest_message = tracker.latest_message
+        full_text = latest_message.get("text", "") or ""
+        text_lower = full_text.lower()
+        
+        extracted = {}
+        
+        # Get entities from Rasa NLU first
+        entities = latest_message.get("entities", [])
+        for entity in entities:
+            entity_name = entity.get("entity")
+            entity_value = entity.get("value")
+            if entity_name and entity_value:
+                extracted[entity_name] = entity_value
+        
+        # Extract names (first two words at start, before first comma)
+        # For comma-separated input, always extract from first part (ignore NLU if wrong)
+        if ',' in full_text:
+            name_text = full_text.split(',')[0].strip()
+            # Extract only first two words (names should be just two words)
+            name_match = re.search(r'^([a-zA-Z]+)\s+([a-zA-Z]+)\b', name_text)
+            if name_match:
+                extracted["first_name"] = name_match.group(1).capitalize()
+                extracted["last_name"] = name_match.group(2).capitalize()
+        elif "first_name" not in extracted or "last_name" not in extracted:
+            # No comma - extract from full text
+            name_text = full_text.strip()
+            name_match = re.search(r'^([a-zA-Z]+)\s+([a-zA-Z]+)\b', name_text)
+            if name_match:
+                if "first_name" not in extracted:
+                    extracted["first_name"] = name_match.group(1).capitalize()
+                if "last_name" not in extracted:
+                    extracted["last_name"] = name_match.group(2).capitalize()
+        
+        # Extract DOB - try parsing each comma-separated part first, then full text
+        if "dob_quotation" not in extracted:
+            # If comma-separated, check each part individually
+            if ',' in full_text:
+                parts = self._normalize_comma_input(full_text)
+                for part in parts:
+                    dob_iso = self._parse_date_to_iso(part)
+                    if dob_iso:
+                        extracted["dob_quotation"] = dob_iso
+                        break
+            else:
+                # No commas, parse full text
+                dob_iso = self._parse_date_to_iso(full_text)
+                if dob_iso:
+                    extracted["dob_quotation"] = dob_iso
+        
+        # Extract gender
+        if "gender" not in extracted:
+            if re.search(r'\b(male|m)\b', text_lower):
+                extracted["gender"] = "Male"
+            elif re.search(r'\b(female|f)\b', text_lower):
+                extracted["gender"] = "Female"
+        
+        # Extract marital status
+        if "marital_status" not in extracted:
+            if re.search(r'\b(married|m)\b', text_lower):
+                extracted["marital_status"] = "Married"
+            elif re.search(r'\b(single|s)\b', text_lower):
+                extracted["marital_status"] = "Single"
+        
+        # Extract tobacco
+        if "tobacco" not in extracted:
+            if re.search(r'\b(yes|y|do|does)\s+tobacco\b', text_lower) or re.search(r',\s*(yes|y)\s*,', text_lower):
+                extracted["tobacco"] = "Yes"
+            elif re.search(r'\b(no|n|don\'t|dont|doesn\'t|does not|do not)\s+tobacco\b', text_lower) or re.search(r',\s*(no|n)\s*,', text_lower):
+                extracted["tobacco"] = "No"
+        
+        # Extract sum assured (large numbers: 6-12 digits, minimum 500000)
+        if "sum_assured" not in extracted:
+            sa_matches = re.findall(r'\b(\d{6,12})\b', full_text)
+            for match in reversed(sa_matches):
+                num = int(match)
+                if 500000 <= num <= 999999999999:
+                    extracted["sum_assured"] = match
+                    break
+        
+        # Extract term and PPT - CRITICAL: Compare numbers, bigger = term, smaller = PPT
+        # First, try keyword-based extraction (most reliable) - only if not comma-separated
+        has_commas = ',' in full_text
+        if not has_commas:
+            if "term" not in extracted:
+                term_match = re.search(r'\b(\d{1,2})\s*(?:years?)?\s*term\b', full_text, re.IGNORECASE)
+                if term_match:
+                    num = int(term_match.group(1))
+                    if 5 <= num <= 40:
+                        extracted["term"] = num
+            
+            if "ppt" not in extracted:
+                ppt_match = re.search(r'\b(\d{1,2})\s*ppt\b', full_text, re.IGNORECASE)
+                if ppt_match:
+                    num = int(ppt_match.group(1))
+                    if 1 <= num <= 40:
+                        extracted["ppt"] = num
+        
+        # For comma-separated input OR if keywords didn't work, find all small numbers (1-40)
+        # Exclude dates and sum assured
+        if has_commas or "term" not in extracted or "ppt" not in extracted:
+            small_numbers = []
+            parts = self._normalize_comma_input(full_text)
+            
+            for part in parts:
+                part_clean = part.strip()
+                # Skip if it's a date (check if parsing succeeds)
+                if self._parse_date_to_iso(part_clean):
+                    continue
+                # Skip if it's sum assured (large number - 6+ digits)
+                if re.search(r'\d{6,}', part_clean):
+                    continue
+                # Skip if it contains text that's clearly not a number (like "female", "male", "yes", "no", etc.)
+                if re.search(r'\b(female|male|yes|no|married|single|m|f|y|n)\b', part_clean, re.IGNORECASE):
+                    continue
+                # Check if the part is ONLY a number (or number with whitespace)
+                # This ensures we only extract standalone numbers, not numbers embedded in text
+                part_numbers_only = re.sub(r'[^\d]', '', part_clean)
+                if part_numbers_only and len(part_numbers_only) <= 2:
+                    num = int(part_numbers_only)
+                    if 1 <= num <= 40:
+                        small_numbers.append(num)
+            
+            # Remove duplicates and sort descending
+            small_numbers = sorted(set(small_numbers), reverse=True)
+            
+            # Debug output
+            if small_numbers:
+                print(f"[DEBUG] Found small numbers for term/PPT: {small_numbers}")
+            
+            # CRITICAL: If we found 2+ numbers in comma-separated input, ALWAYS override both
+            # Bigger = term, smaller = PPT (regardless of what was extracted before)
+            if len(small_numbers) >= 2:
+                if has_commas:
+                    # Comma-separated input: ALWAYS set both based on comparison
+                    extracted["term"] = small_numbers[0]  # Biggest = term (int)
+                    extracted["ppt"] = small_numbers[1]  # Second biggest = PPT (int)
+                    print(f"[DEBUG] Comma-separated input: Setting term = {small_numbers[0]} (biggest), ppt = {small_numbers[1]} (second biggest)")
+                else:
+                    # Not comma-separated: only set if not already extracted
+                    if "term" not in extracted:
+                        extracted["term"] = small_numbers[0]
+                        print(f"[DEBUG] Setting term = {small_numbers[0]} (biggest)")
+                    if "ppt" not in extracted:
+                        extracted["ppt"] = small_numbers[1]
+                        print(f"[DEBUG] Setting ppt = {small_numbers[1]} (second biggest)")
+            elif len(small_numbers) == 1:
+                # Only one number found - assign to term if in range (5-40), leave PPT empty so form asks for it
+                num = small_numbers[0]
+                if 5 <= num <= 40 and "term" not in extracted:
+                    extracted["term"] = num
+                    # Explicitly don't set PPT - form will ask for it
+                    print(f"[DEBUG] Setting term = {num} (only number found, in term range). PPT will be asked by form.")
+                elif 1 <= num < 5 and "ppt" not in extracted:
+                    # If number is 1-4, it can only be PPT (term minimum is 5)
+                    extracted["ppt"] = num
+                    print(f"[DEBUG] Setting ppt = {num} (only number found, too small for term)")
+                # If number is 1-4 and term not set, we still don't set PPT automatically
+                # Let the form ask for term first
+        
+        return extracted
+
+    def _extract_all_slots(self, tracker: Tracker) -> Dict[str, Any]:
+        """
+        STEP 4: Extract all slots from comma-separated input.
+        Called when user provides multiple values at once.
+        Never overwrites existing slot values (user might be answering one by one).
+        """
+        latest_message = tracker.latest_message
+        full_text = latest_message.get("text", "") or ""
+        
+        # Only process if comma-separated input detected
+        if ',' not in full_text:
+            return {}
+        
+        # Normalize comma input
+        parts = self._normalize_comma_input(full_text)
+        if len(parts) < 2:
+            return {}
+        
+        # Extract all entities
+        entities = self._extract_entities(tracker)
+        slot_values = {}
+        
+        # Set slots only if they're currently empty (don't overwrite)
+        if "first_name" in entities and not tracker.get_slot("first_name"):
+            first_name_clean = re.sub(r'[^a-zA-Z\s-]', '', str(entities["first_name"])).strip()
+            # Extract first word only (names should be single words)
+            first_name_parts = first_name_clean.split()
+            if first_name_parts:
+                slot_values["first_name"] = first_name_parts[0].capitalize()
+        
+        if "last_name" in entities and not tracker.get_slot("last_name"):
+            last_name_clean = re.sub(r'[^a-zA-Z\s-]', '', str(entities["last_name"])).strip()
+            # Extract first word only (names should be single words)
+            last_name_parts = last_name_clean.split()
+            if last_name_parts:
+                slot_values["last_name"] = last_name_parts[0].capitalize()
+        
+        if "dob_quotation" in entities and not tracker.get_slot("dob_quotation"):
+            dob_value = str(entities["dob_quotation"])
+            # Only parse if it looks like a date (contains month name, slashes, dashes, or is YYYY-MM-DD format)
+            if any(char in dob_value.lower() for char in ['/', '-']) or \
+               any(month in dob_value.lower() for month in ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec']) or \
+               re.match(r'^\d{4}-\d{2}-\d{2}$', dob_value):
+                dob_iso = self._parse_date_to_iso(dob_value)
+                if dob_iso:
+                    slot_values["dob_quotation"] = dob_iso
+        
+        if "gender" in entities and not tracker.get_slot("gender"):
+            gender = str(entities["gender"]).lower()
+            slot_values["gender"] = "Male" if gender in ["male", "m"] else "Female" if gender in ["female", "f"] else gender.capitalize()
+        
+        if "marital_status" in entities and not tracker.get_slot("marital_status"):
+            status = str(entities["marital_status"]).lower()
+            if not re.fullmatch(r"\d{2,4}", status):  # Ignore numeric values (years)
+                slot_values["marital_status"] = "Married" if status in ["married", "m"] else "Single" if status in ["single", "s"] else status.capitalize()
+        
+        if "tobacco" in entities and not tracker.get_slot("tobacco"):
+            tobacco_val = str(entities["tobacco"]).lower()
+            slot_values["tobacco"] = "Yes" if tobacco_val in ["yes", "y", "do", "does"] else "No"
+        
+        if "sum_assured" in entities and not tracker.get_slot("sum_assured"):
+            sa_str = str(entities["sum_assured"])
+            numbers = re.findall(r'\d+', sa_str)
+            if numbers:
+                sa_value = float(''.join(numbers))
+                if sa_value >= 500000:
+                    slot_values["sum_assured"] = sa_value
+        
+        if "term" in entities and not tracker.get_slot("term"):
+            term_value = int(entities["term"]) if isinstance(entities["term"], str) else entities["term"]
+            if 5 <= term_value <= 40:
+                slot_values["term"] = term_value
+        
+        if "ppt" in entities and not tracker.get_slot("ppt"):
+            ppt_num = int(entities["ppt"]) if isinstance(entities["ppt"], str) else entities["ppt"]
+            if 1 <= ppt_num <= 40:
+                slot_values["ppt"] = str(ppt_num)
+        
+        return slot_values
+
+    # ========== VALIDATION METHODS (called by Rasa for each slot) ==========
+
+    def validate_first_name(self, value, dispatcher, tracker, domain):
+        """Validates first name. If comma-separated input, extracts all slots at once."""
+        # Check for comma-separated input first
+        if ',' in (tracker.latest_message.get("text", "") or ""):
+            all_slots = self._extract_all_slots(tracker)
+            if all_slots:
+                return all_slots
+        
+        entities = self._extract_entities(tracker)
+        
+        # If both names found, return both (but only take first word of each)
+        if "first_name" in entities and "last_name" in entities:
+            first_name_clean = re.sub(r'[^a-zA-Z\s-]', '', str(entities["first_name"])).strip()
+            last_name_clean = re.sub(r'[^a-zA-Z\s-]', '', str(entities["last_name"])).strip()
+            # Only take first word of each
+            first_name_parts = first_name_clean.split()
+            last_name_parts = last_name_clean.split()
+            if first_name_parts and last_name_parts:
+                return {"first_name": first_name_parts[0].capitalize(), "last_name": last_name_parts[0].capitalize()}
+        
+        # If only first name found (only take first word)
+        if "first_name" in entities:
+            first_name_clean = re.sub(r'[^a-zA-Z\s-]', '', str(entities["first_name"])).strip()
+            first_name_parts = first_name_clean.split()
+            if first_name_parts:
+                return {"first_name": first_name_parts[0].capitalize()}
+        
+        # If value has space, might be full name - split it
+        if value and isinstance(value, str) and ' ' in value.strip():
+            name_parts = value.split()
+            if len(name_parts) >= 2:
+                first_name = re.sub(r'[^a-zA-Z\s-]', '', name_parts[0]).strip()
+                last_name = re.sub(r'[^a-zA-Z\s-]', '', name_parts[1]).strip()
+                if first_name and last_name:
+                    return {"first_name": first_name, "last_name": last_name}
+        
+        # Clean and return as first name
+        if value:
+            cleaned = re.sub(r'[^a-zA-Z\s-]', '', str(value)).strip()
+            if cleaned:
+                return {"first_name": cleaned}
+        
+        return {"first_name": value}
+
+    def validate_last_name(self, value, dispatcher, tracker, domain):
+        """Validates last name."""
+        entities = self._extract_entities(tracker)
+        
+        if "last_name" in entities:
+            last_name = re.sub(r'[^a-zA-Z\s-]', '', str(entities["last_name"])).strip()
+            if last_name:
+                return {"last_name": last_name}
+        
+        # Keep existing last name if already set
+        existing = tracker.get_slot("last_name")
+        if existing:
+            cleaned = re.sub(r'[^a-zA-Z\s-]', '', str(existing)).strip()
+            if cleaned:
+                return {"last_name": cleaned}
+        
+        if value:
+            cleaned = re.sub(r'[^a-zA-Z\s-]', '', str(value)).strip()
+            if cleaned:
+                return {"last_name": cleaned}
+        
+        return {"last_name": value}
+
+    def validate_dob_quotation(self, value, dispatcher, tracker, domain):
+        """Validates DOB. Converts any format to YYYY-MM-DD."""
+        # Check for comma-separated input first - extract all slots at once
+        full_text = tracker.latest_message.get("text", "") or ""
+        if ',' in full_text:
+            all_slots = self._extract_all_slots(tracker)
+            if "dob_quotation" in all_slots:
+                return {"dob_quotation": all_slots["dob_quotation"]}
+        
+        entities = self._extract_entities(tracker)
+        
+        # Try to parse DOB - but validate it looks like a date first
+        dob_iso = None
+        
+        # Check entity value - only parse if it looks like a date
+        if "dob_quotation" in entities:
+            dob_value = str(entities["dob_quotation"])
+            # Only parse if it looks like a date (not just a number like "24")
+            if any(char in dob_value.lower() for char in ['/', '-']) or \
+               any(month in dob_value.lower() for month in ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec']) or \
+               re.match(r'^\d{4}-\d{2}-\d{2}$', dob_value):
+                dob_iso = self._parse_date_to_iso(dob_value)
+        
+        # If not found in entities, try parsing each comma-separated part
+        if not dob_iso and ',' in full_text:
+            parts = self._normalize_comma_input(full_text)
+            for part in parts:
+                dob_iso = self._parse_date_to_iso(part)
+                if dob_iso:
+                    break
+        
+        # If still not found, try full text
+        if not dob_iso:
+            dob_iso = self._parse_date_to_iso(full_text)
+        
+        # Last resort: try value parameter (but validate it looks like a date)
+        if not dob_iso and value:
+            value_str = str(value)
+            # Only parse if it looks like a date
+            if any(char in value_str.lower() for char in ['/', '-']) or \
+               any(month in value_str.lower() for month in ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec']) or \
+               re.match(r'^\d{4}-\d{2}-\d{2}$', value_str):
+                dob_iso = self._parse_date_to_iso(value_str)
+        
+        if dob_iso and re.match(r'\d{4}-\d{2}-\d{2}', dob_iso):
+            return {"dob_quotation": dob_iso}
+        
+        # If we have an existing valid DOB, keep it
+        existing_dob = tracker.get_slot("dob_quotation")
+        if existing_dob and re.match(r'\d{4}-\d{2}-\d{2}', str(existing_dob)):
+            return {"dob_quotation": existing_dob}
+        
+        return {"dob_quotation": value}
+
     def validate_gender(self, value, dispatcher, tracker, domain):
-        """
-        Validates gender. Accepts "male", "m", "female", "f".
-        Returns "Male" or "Female" in proper format.
-        """
-        entities = self.extract_entities_from_message(tracker)
+        """Validates gender."""
+        entities = self._extract_entities(tracker)
+        
         if "gender" in entities:
             gender = str(entities["gender"]).lower()
-            if ',' in gender:
-                gender = gender.split(',')[0].strip()
             if gender in ["male", "m"]:
                 return {"gender": "Male"}
             elif gender in ["female", "f"]:
                 return {"gender": "Female"}
-            return {"gender": str(entities["gender"]).capitalize()}
         
         if value:
-            cleaned_value = str(value).split(',')[0].strip().lower()
-            if cleaned_value in ["male", "m"]:
+            gender = str(value).lower()
+            if gender in ["male", "m"]:
                 return {"gender": "Male"}
-            elif cleaned_value in ["female", "f"]:
+            elif gender in ["female", "f"]:
                 return {"gender": "Female"}
-            return {"gender": str(value).split(',')[0].strip().capitalize()}
         
         return {"gender": value}
 
     def validate_marital_status(self, value, dispatcher, tracker, domain):
-        """
-        Validates marital status. Accepts "married", "m", "single", "s".
-        Returns "Married" or "Single" in proper format.
-        """
-        entities = self.extract_entities_from_message(tracker)
+        """Validates marital status."""
+        entities = self._extract_entities(tracker)
+        
         if "marital_status" in entities:
-            status_raw = str(entities["marital_status"])
-            status = status_raw.lower()
-            if ',' in status:
-                status = status.split(',')[0].strip()
-            # If NLU accidentally tagged a year/number as marital_status (e.g. "2003"), ignore it
+            status = str(entities["marital_status"]).lower()
+            if not re.fullmatch(r"\d{2,4}", status):  # Ignore numeric values
+                if status in ["married", "m"]:
+                    return {"marital_status": "Married"}
+                elif status in ["single", "s"]:
+                    return {"marital_status": "Single"}
+        
+        if value:
+            status = str(value).lower()
             if not re.fullmatch(r"\d{2,4}", status):
                 if status in ["married", "m"]:
                     return {"marital_status": "Married"}
                 elif status in ["single", "s"]:
                     return {"marital_status": "Single"}
-                return {"marital_status": status_raw.split(',')[0].strip().capitalize()}
-
-        # Try to infer marital status from the latest message text directly
-        latest_message = tracker.latest_message
-        text = (latest_message.get("text", "") or "").lower()
-        if re.search(r"\bmarried\b", text):
-            return {"marital_status": "Married"}
-        if re.search(r"\bsingle\b", text):
-            return {"marital_status": "Single"}
-        if re.search(r"\bdivorced\b", text):
-            return {"marital_status": "Divorced"}
-        if re.search(r"\bwidowed\b", text):
-            return {"marital_status": "Widowed"}
-
-        if value:
-            cleaned_value = str(value).split(',')[0].strip().capitalize()
-            # Ignore pure numeric "values" (likely mis-extracted years)
-            if not re.fullmatch(r"\d{2,4}", cleaned_value):
-                if cleaned_value in ["Married", "Single", "Divorced", "Widowed"]:
-                    return {"marital_status": cleaned_value}
         
         return {"marital_status": value}
 
     def validate_tobacco(self, value, dispatcher, tracker, domain):
-        """
-        Validates tobacco consumption. Accepts "yes", "y", "no", "n", "don't", etc.
-        Returns "Yes" or "No" in proper format.
-        """
-        entities = self.extract_entities_from_message(tracker)
+        """Validates tobacco consumption."""
+        entities = self._extract_entities(tracker)
+        
         if "tobacco" in entities:
-            tobacco_val = str(entities["tobacco"]).lower()
-            if ',' in tobacco_val:
-                tobacco_val = tobacco_val.split(',')[0].strip()
-            if tobacco_val in ["yes", "y", "do", "does"]:
+            tobacco = str(entities["tobacco"]).lower()
+            if tobacco in ["yes", "y", "do", "does"]:
                 return {"tobacco": "Yes"}
-            elif tobacco_val in ["no", "n", "don't", "dont", "doesn't", "does not", "do not"]:
+            elif tobacco in ["no", "n", "don't", "dont"]:
                 return {"tobacco": "No"}
-            return {"tobacco": str(entities["tobacco"])}
         
         if value:
-            cleaned_value = str(value).split(',')[0].strip().lower()
-            if cleaned_value in ["yes", "y", "do", "does"]:
+            tobacco = str(value).lower()
+            if tobacco in ["yes", "y", "do", "does"]:
                 return {"tobacco": "Yes"}
-            elif cleaned_value in ["no", "n", "don't", "dont", "doesn't", "does not", "do not"]:
+            elif tobacco in ["no", "n", "don't", "dont"]:
                 return {"tobacco": "No"}
-            return {"tobacco": str(value).split(',')[0].strip()}
         
         return {"tobacco": value}
 
     def validate_sum_assured(self, value, dispatcher, tracker, domain):
-        """
-        Validates sum assured amount. Minimum is 5 lakhs (500000).
-        Extracts numbers from the input and validates the amount.
-        """
-        entities = self.extract_entities_from_message(tracker)
-        
-        # Helper function to extract and validate sum assured
-        def extract_sum_assured(val_str):
-            if ',' in val_str:
-                val_str = val_str.split(',')[0].strip()
-            numbers = re.findall(r'\d+', val_str)
-            if numbers:
-                try:
-                    sa_value = float(''.join(numbers))
-                    if sa_value < 500000:
-                        dispatcher.utter_message("Minimum sum assured is 5 lakhs.")
-                        return None
-                    return sa_value
-                except (ValueError, TypeError):
-                    pass
-            return None
+        """Validates sum assured (minimum 500000)."""
+        entities = self._extract_entities(tracker)
         
         if "sum_assured" in entities:
-            sa_value = extract_sum_assured(str(entities["sum_assured"]))
-            if sa_value is not None:
-                return {"sum_assured": sa_value}
+            sa_str = str(entities["sum_assured"])
+            numbers = re.findall(r'\d+', sa_str)
+            if numbers:
+                sa_value = float(''.join(numbers))
+                if sa_value >= 500000:
+                    return {"sum_assured": sa_value}
+                else:
+                    dispatcher.utter_message("Minimum sum assured is 5 lakhs.")
         
         if value:
-            sa_value = extract_sum_assured(str(value))
-            if sa_value is not None:
-                return {"sum_assured": sa_value}
-            return {"sum_assured": None}
+            numbers = re.findall(r'\d+', str(value))
+            if numbers:
+                sa_value = float(''.join(numbers))
+                if sa_value >= 500000:
+                    return {"sum_assured": sa_value}
+                else:
+                    dispatcher.utter_message("Minimum sum assured is 5 lakhs.")
         
         return {"sum_assured": value}
 
     def validate_term(self, value, dispatcher, tracker, domain):
-        """
-        Validates policy term. Must be between 5 and 40 years.
-        Returns as integer (not float) to avoid API issues.
-        """
-        # Get requested slot - if form is asking for PPT, don't process term value
-        requested_slot = tracker.get_slot("requested_slot")
-        if requested_slot == "ppt":
-            # Form is asking for PPT, don't change term
-            existing_term = tracker.get_slot("term")
-            return {"term": existing_term} if existing_term is not None else {}
+        """Validates policy term (5-40 years)."""
+        # Don't process if form is asking for PPT
+        if tracker.get_slot("requested_slot") == "ppt":
+            existing = tracker.get_slot("term")
+            return {"term": existing} if existing is not None else {}
         
-        # Process value only if form is asking for term
-        if value:
-            try:
-                numbers = re.findall(r'\d+', str(value))
-                if numbers:
-                    term_value = int(numbers[0])
-                    if 5 <= term_value <= 40:
-                        return {"term": term_value}
-                    else:
-                        dispatcher.utter_message("Term must be between 5 and 40 years.")
-                        return {"term": None}
-            except (ValueError, TypeError):
-                pass
+        # Check for comma-separated input first - extract all slots at once
+        full_text = tracker.latest_message.get("text", "") or ""
+        if ',' in full_text:
+            all_slots = self._extract_all_slots(tracker)
+            if "term" in all_slots:
+                return {"term": all_slots["term"]}
         
-        existing_term = tracker.get_slot("term")
-        if existing_term is not None:
-            return {"term": existing_term}
+        entities = self._extract_entities(tracker)
+        
+        # Prioritize extracted entities over value parameter
+        if "term" in entities:
+            term_value = int(entities["term"]) if isinstance(entities["term"], str) else entities["term"]
+            if 5 <= term_value <= 40:
+                return {"term": term_value}
+            else:
+                dispatcher.utter_message("Term must be between 5 and 40 years.")
+        
+        # Only use value parameter if no entity found
+        if value and "term" not in entities:
+            term_value = int(value) if isinstance(value, str) else value
+            if 5 <= term_value <= 40:
+                return {"term": term_value}
+            else:
+                dispatcher.utter_message("Term must be between 5 and 40 years.")
+        
+        existing = tracker.get_slot("term")
+        if existing is not None:
+            return {"term": existing}
         
         return {"term": value}
 
     def validate_ppt(self, value, dispatcher, tracker, domain):
-        """
-        Validates Premium Payment Term (PPT).
-        Accepts numbers (like "10") or keywords (like "annually", "monthly").
-        """
-        # Get requested slot - if form is asking for term, don't process PPT value
-        requested_slot = tracker.get_slot("requested_slot")
-        if requested_slot == "term":
-            # Form is asking for term, don't change PPT
-            existing_ppt = tracker.get_slot("ppt")
-            return {"ppt": existing_ppt} if existing_ppt is not None else {}
+        """Validates Premium Payment Term (PPT) (1-40 years)."""
+        # Don't process if form is asking for term
+        if tracker.get_slot("requested_slot") == "term":
+            existing = tracker.get_slot("ppt")
+            return {"ppt": existing} if existing is not None else {}
         
-        # Process value only if form is asking for PPT
-        if value:
-            value_str = str(value).lower().strip()
-            if "annually" in value_str or "yearly" in value_str:
-                return {"ppt": "Annually"}
-            elif "monthly" in value_str:
-                return {"ppt": "Monthly"}
-            elif "quarterly" in value_str:
-                return {"ppt": "Quarterly"}
+        # Check for comma-separated input first - extract all slots at once
+        full_text = tracker.latest_message.get("text", "") or ""
+        if ',' in full_text:
+            all_slots = self._extract_all_slots(tracker)
+            if "ppt" in all_slots:
+                return {"ppt": all_slots["ppt"]}
+        
+        entities = self._extract_entities(tracker)
+        
+        # Prioritize extracted entities over value parameter
+        if "ppt" in entities:
+            ppt_num = int(entities["ppt"]) if isinstance(entities["ppt"], str) else entities["ppt"]
+            if 1 <= ppt_num <= 40:
+                return {"ppt": str(ppt_num)}
             else:
-                try:
-                    numbers = re.findall(r'\d+', str(value))
-                    if numbers:
-                        ppt_value = int(numbers[0])
-                        if 1 <= ppt_value <= 40:
-                            return {"ppt": str(ppt_value)}
-                        else:
-                            dispatcher.utter_message("PPT must be between 1 and 40 years.")
-                            return {"ppt": None}
-                except (ValueError, TypeError):
-                    pass
+                dispatcher.utter_message("PPT must be between 1 and 40 years.")
         
-        existing_ppt = tracker.get_slot("ppt")
-        if existing_ppt:
-            return {"ppt": existing_ppt}
+        # Only use value parameter if no entity found
+        if value and "ppt" not in entities:
+            ppt_num = int(value) if isinstance(value, str) else value
+            if 1 <= ppt_num <= 40:
+                return {"ppt": str(ppt_num)}
+            else:
+                dispatcher.utter_message("PPT must be between 1 and 40 years.")
+        
+        existing = tracker.get_slot("ppt")
+        if existing:
+            return {"ppt": existing}
+        
+        # If no PPT found and no value provided, return empty dict so form asks for it
+        if not value:
+            return {}
         
         return {"ppt": value}
 
+
 class ActionStopPremium(Action):
-    """
-    This action is called when the user says "no" or "stop" to premium calculation.
-    It simply tells the user that the process is stopped.
-    """
+    """Called when user says 'stop' to premium calculation."""
     
     def name(self) -> str:
         return "action_stop_premium"
@@ -1827,19 +755,15 @@ class ActionStopPremium(Action):
 
 
 class ActionSubmitQuotationForm(Action):
-    """
-    This action is called when the form has collected all required information.
-    It shows a summary of what the user provided and asks if they want to proceed
-    to calculate the premium.
-    """
-
+    """Called when form is complete. Shows summary and asks for confirmation."""
+    
     def name(self) -> str:
         return "action_submit_quotation_form"
-
+    
     def run(self, dispatcher, tracker, domain):
         product = "ICICI PRU IPROTECT SMART PLUS"
-        mode = "Annually"
-
+        mode = "Monthly"
+        
         dispatcher.utter_message(
             text=(
                 "*Quotation Summary*\n"
@@ -1851,25 +775,20 @@ class ActionSubmitQuotationForm(Action):
                 "*Should I proceed to get your premium?* (proceed/stop)"
             )
         )
-        # Set flag to indicate we're waiting for user's confirmation
         return [SlotSet("awaiting_premium_confirmation", True)]
 
 
 class ActionCallPremiumApi(Action):
     """
-    This is the main action that calls the external API to calculate the premium.
-    It collects all the information from slots, cleans it, formats it for the API,
-    makes the API call, and then displays the result to the user.
+    FINAL ACTION: Called when user confirms premium calculation.
+    Calls external API to get premium and displays result.
     """
-
+    
     def name(self) -> str:
         return "action_call_premium_api"
     
     def _convert_to_int_string(self, value, default="0"):
-        """
-        Helper method: Converts any value (int, float, string) to an integer string.
-        The API requires integer strings, not floats, so this prevents errors like "5.0" being invalid.
-        """
+        """Helper: Convert value to integer string (API requirement)."""
         if value is None:
             return default
         try:
@@ -1881,64 +800,48 @@ class ActionCallPremiumApi(Action):
                 return str(int(float(value)))
         except (ValueError, TypeError):
             return default
-        return default
-
+    
     def run(self, dispatcher, tracker, domain):
-        # Step 1: Collect and clean all user inputs from slots
-        # DOB validator stores value as YYYY-MM-DD (Python date / ISO format).
-        # The API expects XMLSchema date (YYYY-MM-DD), so we just pass it through.
-        dob_raw = tracker.get_slot("dob_quotation")
-        dob = None
-        if dob_raw:
-            dob_str = str(dob_raw).strip()
-            # If user/message added extra text after a comma, keep only the date part
-            if "," in dob_str:
-                dob_str = dob_str.split(",")[0].strip()
-            # If it's already in YYYY-MM-DD, keep as-is; otherwise, try to parse and normalise.
-            if re.match(r"\d{4}-\d{2}-\d{2}$", dob_str):
-                dob = dob_str
+        # Collect and clean all inputs
+        dob_raw = tracker.get_slot("dob_quotation") or ""
+        # Validate DOB is in correct format (YYYY-MM-DD), not just a number
+        dob = ""
+        if dob_raw and re.match(r'^\d{4}-\d{2}-\d{2}$', str(dob_raw)):
+            dob = str(dob_raw)
+        else:
+            dispatcher.utter_message("❌ Invalid date of birth. Please provide a valid date.")
+            return [SlotSet("awaiting_premium_confirmation", False)]
+        
+        # Clean names - only take first word
+        first_name_raw = str(tracker.get_slot("first_name") or "").strip()
+        first_name_parts = re.sub(r'[^a-zA-Z\s-]', '', first_name_raw).strip().split()
+        first_name = first_name_parts[0].capitalize() if first_name_parts else ""
+        
+        last_name_raw = str(tracker.get_slot("last_name") or "").strip()
+        last_name_parts = re.sub(r'[^a-zA-Z\s-]', '', last_name_raw).strip().split()
+        last_name = last_name_parts[0].capitalize() if last_name_parts else ""
+        
+        gender = str(tracker.get_slot("gender") or "")
+        marital_status = str(tracker.get_slot("marital_status") or "")
+        if re.fullmatch(r"\d{2,4}", marital_status):
+            marital_status = ""
+        else:
+            marital_status_lower = marital_status.lower()
+            if marital_status_lower in ["married", "m"]:
+                marital_status = "Married"
+            elif marital_status_lower in ["single", "s"]:
+                marital_status = "Single"
             else:
-                try:
-                    # Try a few common formats, then normalise to YYYY-MM-DD
-                    for fmt in ["%Y/%m/%d", "%d/%m/%Y", "%d-%m-%Y"]:
-                        try:
-                            parsed = datetime.strptime(dob_str, fmt).date()
-                            dob = parsed.strftime("%Y-%m-%d")
-                            break
-                        except ValueError:
-                            continue
-                    # If none matched, fall back to original string
-                    if not dob:
-                        dob = dob_str
-                except Exception:
-                    dob = dob_str
+                marital_status = marital_status.capitalize()
         
-        first_name = tracker.get_slot("first_name")
-        last_name = tracker.get_slot("last_name")
-        if first_name:
-            first_name = re.sub(r'[^a-zA-Z\s-]', '', str(first_name)).strip()
-        if last_name:
-            last_name = re.sub(r'[^a-zA-Z\s-]', '', str(last_name)).strip()
-        
-        marital_status = tracker.get_slot("marital_status")
-        if marital_status:
-            marital_status = str(marital_status).split(',')[0].strip()
-            # Clean obviously wrong numeric values like "2003" caused by mis-tagging
-            if re.fullmatch(r"\d{2,4}", marital_status):
-                marital_status = ""
-        
-        gender = tracker.get_slot("gender")
-        if gender and ',' in str(gender):
-            gender = str(gender).split(',')[0].strip()
-
-        # Step 2: Build the API request payload (data structure the API expects)
+        # Build API payload
         data = {
             "Root": {
-                "FirstName": first_name or "",
-                "LastName": last_name or "",
+                "FirstName": first_name,
+                "LastName": last_name,
                 "DateOfBirth": dob,
-                "Gender": gender or "",
-                "MaritalStatus": marital_status or "",
+                "Gender": gender,
+                "MaritalStatus": marital_status,
                 "PolicyholderFName": "",
                 "PolicyholderLName": "",
                 "PolicyholderDOB": "",
@@ -1951,13 +854,12 @@ class ActionCallPremiumApi(Action):
                         "ProductType": "TRADITIONAL",
                         "ProductName": "ICICI PRU IPROTECT SMART PLUS",
                         "ProductCode": "T74",
-                        "ModeOfPayment": "Annually",
+                        "ModeOfPayment": "Monthly",
                         "ModalPremium": "0",
                         "AnnualPremium": "0",
                         "Term": self._convert_to_int_string(tracker.get_slot("term"), "0"),
                         "DeathBenefit": self._convert_to_int_string(tracker.get_slot("sum_assured"), "0"),
-                        # "PremiumPaymentTerm": str(tracker.get_slot("ppt")) if tracker.get_slot("ppt") else "0",
-                        "PremiumPaymentTerm":"7",
+                        "PremiumPaymentTerm": str(tracker.get_slot("ppt")) if tracker.get_slot("ppt") else "0",
                         "GstWaiver": "No",
                         "Tobacco": "1" if str(tracker.get_slot("tobacco")).lower() == "yes" else "0",
                         "SalesChannel": "0",
@@ -1986,13 +888,13 @@ class ActionCallPremiumApi(Action):
                 }
             }
         }
-
-        # Step 3: Add any additional riders if user provided them
+        
+        # Add additional riders if provided
         riders = tracker.get_slot("rider_name")
         rider_sa = tracker.get_slot("rider_sa")
         term = self._convert_to_int_string(tracker.get_slot("term"), "30")
         ppt = str(tracker.get_slot("ppt")) if tracker.get_slot("ppt") else "15"
-
+        
         if riders and rider_sa:
             for i, r in enumerate(riders):
                 data["Root"]["ProductDetails"]["Product"]["RiderDetails"]["Rider"].append({
@@ -2003,12 +905,11 @@ class ActionCallPremiumApi(Action):
                     "Percentage": "0",
                     "RiderPPT": ppt
                 })
-
-        # Step 4: Call the API
+        
+        # Call API
         try:
             token = get_cached_token()
             
-            # Print token, payload, and response for debugging
             print("\n" + "="*80)
             print("API CALL DEBUG INFO")
             print("="*80)
@@ -2027,29 +928,26 @@ class ActionCallPremiumApi(Action):
             print(f"\n❌ API CALL ERROR: {str(e)}\n")
             dispatcher.utter_message(f"❌ Failed to get premium: {str(e)}")
             return [SlotSet("awaiting_premium_confirmation", False)]
-
-        # Step 5: Handle API response - check for errors
+        
+        # Handle API response
         if isinstance(result, dict):
             error_code = result.get("ErrorCode", "")
             error_msg = result.get("ErrorMessage", "")
             
-            # E00 with "Success" means success, not an error
             is_success = (error_code == "E00" and error_msg == "Success")
             
-            # If there's an error code and it's not success, show error message
             if error_code and not is_success:
                 dispatcher.utter_message(
                     text=f"Response from API:Unable to generate quotation (Error {error_code}): {error_msg or 'Unknown error'}"
                 )
                 return [SlotSet("awaiting_premium_confirmation", False)]
             
-            # Check if premium information exists in response
             if "PremiumSummary" not in result:
                 error_msg = result.get("ErrorMessage", "Quotation received, but premium information is missing.")
                 dispatcher.utter_message(f"❌ {error_msg}")
                 return [SlotSet("awaiting_premium_confirmation", False)]
-
-        # Step 6: Extract and display the premium
+        
+        # Extract and display premium
         try:
             premium = result["PremiumSummary"]["TotalFirstPremium"]
         except (KeyError, TypeError):
@@ -2060,17 +958,15 @@ class ActionCallPremiumApi(Action):
         policy_term = data["Root"]["ProductDetails"]["Product"]["Term"]
         ppt = data["Root"]["ProductDetails"]["Product"]["PremiumPaymentTerm"]
         sum_assured = data["Root"]["ProductDetails"]["Product"]["DeathBenefit"]
-
-        # Step 7: Show the final premium result to user
+        
         dispatcher.utter_message(
             text=(
                 f"Quotation Summary: Total Premium (with tax): ₹{premium} per year\n"
                 f"Coverage Summary\n"
-                 f"- Sum Assured: ₹{sum_assured}\n"
+                f"- Sum Assured: ₹{sum_assured}\n"
                 f"- Policy Term: {policy_term} years\n"
                 f"- Premium Payment Term (PPT): {ppt} years\n\n"
             )
         )
-
-
+        
         return [SlotSet("awaiting_premium_confirmation", False)]
