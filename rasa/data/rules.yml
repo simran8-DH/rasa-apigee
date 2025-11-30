@@ -59,3 +59,14 @@ rules:
     - intent: nlu_fallback
     - action: utter_default
 
+# Rule 8: When user wants to restart the quotation process
+- rule: Handle restart
+  steps:
+    - intent: restart
+    - action: action_restart
+
+# Rule 9: When user wants to modify a specific field (can be used anytime)
+- rule: Handle modify
+  steps:
+    - intent: modify
+    - action: action_modify

@@ -26,6 +26,7 @@ class ActionActivateQuotationForm(Action):
     """
     FIRST ACTION: Called when user asks for a quotation.
     - If all slots are filled: Shows summary directly
+    - If some slots are filled: Shows what's filled and asks for missing ones
     - Otherwise: Shows instructions to collect details
     """
     
@@ -39,10 +40,19 @@ class ActionActivateQuotationForm(Action):
         required_slots = ["first_name", "last_name", "dob_quotation", "gender", 
                          "marital_status", "tobacco", "sum_assured", "term", "ppt"]
         
-        all_filled = all(tracker.get_slot(slot) is not None and tracker.get_slot(slot) != "" 
-                        for slot in required_slots)
+        # Check which slots are filled
+        filled_slots = {}
+        missing_slots = []
         
-        if all_filled:
+        for slot in required_slots:
+            value = tracker.get_slot(slot)
+            if value is not None and value != "":
+                filled_slots[slot] = value
+            else:
+                missing_slots.append(slot)
+        
+        # If all slots are filled, show summary directly
+        if not missing_slots:
             product = "ICICI PRU IPROTECT SMART PLUS"
             mode = "Annually"
             dispatcher.utter_message(
@@ -53,7 +63,9 @@ class ActionActivateQuotationForm(Action):
                     f"*Term:* {tracker.get_slot('term')} years\n"
                     f"*Tobacco:* {tracker.get_slot('tobacco')}\n"
                     f"*Mode:* {mode}\n"
-                    "*Should I proceed to get your premium?* (proceed/stop)"
+                    "*Should I proceed to get your premium?* (proceed/stop)\n"
+                    "*To modify any value, type 'modify [field name]' (e.g., 'modify term' or 'modify sum assured')\n"
+                    "*To restart, type 'restart'"
                 )
             )
             return [
@@ -61,20 +73,223 @@ class ActionActivateQuotationForm(Action):
                 SlotSet("awaiting_premium_confirmation", True)
             ]
         
-        message = (
-            "Great! I'll help you get a quotation. Please provide me with the following details:\n"
-            "• Name (First and Last name)\n"
-            "• Date of Birth (e.g., 1987/04/06 or 12 june 1992)\n"
-            "• Gender (Male/Female)\n"
-            "• Marital Status (Married/Single)\n"
-            "• Tobacco consumption (Yes/No)\n"
-            "• Policy Term (e.g., 20 years)\n"
-            "• Premium Payment Term (PPT) (e.g., 10 years)\n"
-            "• Sum Assured (e.g., 5000000)\n"
-            "You can provide all these details in a single comma-separated message or can chat.\n"
-        )
+        # If some slots are filled, show what's filled and ask for missing ones
+        if filled_slots:
+            message = "*Current Information:*\n"
+            if "first_name" in filled_slots and "last_name" in filled_slots:
+                message += f"• Name: {filled_slots.get('first_name')} {filled_slots.get('last_name')}\n"
+            if "dob_quotation" in filled_slots:
+                message += f"• Date of Birth: {filled_slots.get('dob_quotation')}\n"
+            if "gender" in filled_slots:
+                message += f"• Gender: {filled_slots.get('gender')}\n"
+            if "marital_status" in filled_slots:
+                message += f"• Marital Status: {filled_slots.get('marital_status')}\n"
+            if "tobacco" in filled_slots:
+                message += f"• Tobacco: {filled_slots.get('tobacco')}\n"
+            if "sum_assured" in filled_slots:
+                message += f"• Sum Assured: ₹{filled_slots.get('sum_assured')}\n"
+            if "term" in filled_slots:
+                message += f"• Policy Term: {filled_slots.get('term')} years\n"
+            if "ppt" in filled_slots:
+                message += f"• Premium Payment Term (PPT): {filled_slots.get('ppt')} years\n"
+            
+            message += "\n*Still need:*\n"
+            slot_labels = {
+                "first_name": "Name (First and Last name)",
+                "last_name": "Name (First and Last name)",
+                "dob_quotation": "Date of Birth",
+                "gender": "Gender (Male/Female)",
+                "marital_status": "Marital Status (Married/Single)",
+                "tobacco": "Tobacco consumption (Yes/No)",
+                "sum_assured": "Sum Assured (e.g., 5000000)",
+                "term": "Policy Term (e.g., 20 years)",
+                "ppt": "Premium Payment Term (PPT) (e.g., 10 years)"
+            }
+            
+            # Don't show both first_name and last_name if one is missing (they're usually together)
+            shown_missing = set()
+            for slot in missing_slots:
+                if slot == "last_name" and "first_name" in missing_slots:
+                    continue  # Skip last_name if first_name is also missing
+                if slot == "first_name":
+                    shown_missing.add("Name")
+                else:
+                    shown_missing.add(slot_labels.get(slot, slot))
+            
+            for item in shown_missing:
+                message += f"• {item}\n"
+            
+            message += "\nYou can provide the missing details now, or type /restart to start fresh."
+        else:
+            # No slots filled, show full instructions
+            message = (
+                "Great! I'll help you get a quotation. Please provide me with the following details:\n"
+                "• Name (First and Last name)\n"
+                "• Date of Birth (e.g., 1987/04/06 or 12 june 1992)\n"
+                "• Gender (Male/Female)\n"
+                "• Marital Status (Married/Single)\n"
+                "• Tobacco consumption (Yes/No)\n"
+                "• Policy Term (e.g., 20 years)\n"
+                "• Premium Payment Term (PPT) (e.g., 10 years)\n"
+                "• Sum Assured (e.g., 5000000)\n"
+                "You can provide all these details in a single comma-separated message or can chat.\n"
+            )
+        
         dispatcher.utter_message(text=message)
         return []
+
+
+class ActionModify(Action):
+    """
+    MODIFY ACTION: Allows user to modify a specific slot value.
+    User can say "modify term", "modify sum assured", etc.
+    """
+    
+    def name(self) -> str:
+        return "action_modify"
+    
+    def run(self, dispatcher: CollectingDispatcher,
+            tracker: Tracker,
+            domain: DomainDict) -> List[Dict[str, Any]]:
+        
+        latest_message = tracker.latest_message
+        full_text = (latest_message.get("text", "") or "").lower()
+        
+        # Map user-friendly names to slot names
+        slot_mapping = {
+            "name": ["first_name", "last_name"],
+            "first name": ["first_name"],
+            "last name": ["last_name"],
+            "dob": ["dob_quotation"],
+            "date of birth": ["dob_quotation"],
+            "birthday": ["dob_quotation"],
+            "birth date": ["dob_quotation"],
+            "gender": ["gender"],
+            "marital status": ["marital_status"],
+            "marital": ["marital_status"],
+            "tobacco": ["tobacco"],
+            "sum assured": ["sum_assured"],
+            "sum": ["sum_assured"],
+            "amount": ["sum_assured"],
+            "term": ["term"],
+            "policy term": ["term"],
+            "ppt": ["ppt"],
+            "premium payment term": ["ppt"],
+            "payment term": ["ppt"]
+        }
+        
+        # Find which slot user wants to modify
+        slot_to_modify = None
+        for key, slots in slot_mapping.items():
+            if key in full_text:
+                slot_to_modify = slots[0]  # Take first slot if multiple (like name -> first_name)
+                break
+        
+        # If not found, try to extract from entities or look for common patterns
+        if not slot_to_modify:
+            entities = latest_message.get("entities", [])
+            for entity in entities:
+                entity_name = entity.get("entity")
+                if entity_name in ["first_name", "last_name", "dob_quotation", "gender", 
+                                  "marital_status", "tobacco", "sum_assured", "term", "ppt"]:
+                    slot_to_modify = entity_name
+                    break
+        
+        # If still not found, try direct slot name matching
+        if not slot_to_modify:
+            for slot in ["first_name", "last_name", "dob_quotation", "gender", 
+                        "marital_status", "tobacco", "sum_assured", "term", "ppt"]:
+                if slot.replace("_", " ") in full_text or slot in full_text:
+                    slot_to_modify = slot
+                    break
+        
+        if not slot_to_modify:
+            # Show available options
+            dispatcher.utter_message(
+                text=(
+                    "I can help you modify any of these fields:\n"
+                    "• Name (first name, last name)\n"
+                    "• Date of Birth (dob, date of birth)\n"
+                    "• Gender\n"
+                    "• Marital Status\n"
+                    "• Tobacco\n"
+                    "• Sum Assured (sum, amount)\n"
+                    "• Term (policy term)\n"
+                    "• PPT (premium payment term, payment term)\n\n"
+                    "Please specify which field you want to modify. For example: 'modify term' or 'modify sum assured'"
+                )
+            )
+            return []
+        
+        # Clear the specific slot(s)
+        slots_to_clear = [slot_to_modify]
+        
+        # If modifying name, clear both first and last name
+        if slot_to_modify == "first_name":
+            slots_to_clear = ["first_name", "last_name"]
+        elif slot_to_modify == "last_name":
+            slots_to_clear = ["first_name", "last_name"]
+        
+        slot_sets = [SlotSet(slot, None) for slot in slots_to_clear]
+        
+        # Get friendly name for the field
+        friendly_names = {
+            "first_name": "Name",
+            "last_name": "Name",
+            "dob_quotation": "Date of Birth",
+            "gender": "Gender",
+            "marital_status": "Marital Status",
+            "tobacco": "Tobacco",
+            "sum_assured": "Sum Assured",
+            "term": "Policy Term",
+            "ppt": "Premium Payment Term (PPT)"
+        }
+        
+        field_name = friendly_names.get(slot_to_modify, slot_to_modify)
+        
+        # Clear awaiting_premium_confirmation so form can activate
+        slot_sets.append(SlotSet("awaiting_premium_confirmation", False))
+        
+        dispatcher.utter_message(
+            text=f"✅ {field_name} has been cleared. Please provide the new value."
+        )
+        
+        # Activate the form to collect the modified value
+        return slot_sets + [ActiveLoop("quotation_form")]
+
+
+class ActionRestart(Action):
+    """
+    RESTART ACTION: Clears all quotation slots when user types /restart.
+    Allows user to start fresh with a new quotation.
+    """
+    
+    def name(self) -> str:
+        return "action_restart"
+    
+    def run(self, dispatcher: CollectingDispatcher,
+            tracker: Tracker,
+            domain: DomainDict) -> List[Dict[str, Any]]:
+        
+        # Clear only required quotation slots (not optional ones like rider_option, rider_name, rider_sa)
+        # These are the core required slots for quotation
+        slots_to_clear = [
+            "first_name", "last_name", "dob_quotation", "gender",
+            "marital_status", "tobacco", "sum_assured", "term", "ppt",
+            "awaiting_premium_confirmation"
+        ]
+        
+        # Only clear slots that exist in domain to avoid errors
+        domain_slots = domain.get("slots", {})
+        valid_slots = [slot for slot in slots_to_clear if slot in domain_slots]
+        
+        slot_sets = [SlotSet(slot, None) for slot in valid_slots]
+        
+        dispatcher.utter_message(
+            text="✅ All information has been cleared. You can now start a fresh quotation request!"
+        )
+        
+        return slot_sets
 
 
 class ValidateQuotationForm(FormValidationAction):
@@ -772,7 +987,9 @@ class ActionSubmitQuotationForm(Action):
                 f"*Term:* {tracker.get_slot('term')} years\n"
                 f"*Tobacco:* {tracker.get_slot('tobacco')}\n"
                 f"*Mode:* {mode}\n"
-                "*Should I proceed to get your premium?* (proceed/stop)"
+                "*Should I proceed to get your premium?* (proceed/stop)\n"
+                "*To modify any value, type 'modify [field name]' (e.g., 'modify term' or 'modify sum assured')\n"
+                "*To restart, type 'restart'"
             )
         )
         return [SlotSet("awaiting_premium_confirmation", True)]

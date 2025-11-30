@@ -25,7 +25,8 @@ intents:
   - nlu_fallback
   - confirm_premium
   - provide_all_details
-
+  - restart
+  - modify
 entities:
 # Insurance Quotation Agent:dob, confirm(affirm),deny already exists
   - first_name
@@ -41,6 +42,7 @@ entities:
   - rider_sa
   # - mode
   - ppt
+  - slot_to_modify
 
 slots:
   
@@ -213,6 +215,13 @@ slots:
     initial_value: false
     mappings:
       - type: custom
+  
+  slot_to_modify:
+    type: text
+    influence_conversation: false
+    mappings:
+      - type: from_entity
+        entity: slot_to_modify
 
 
 # when multiple slots and entities are there, then we can use forms
@@ -310,3 +319,7 @@ actions:
   - action_call_premium_api
   # Step 5: Cancels premium calculation if user says stop (alternative to step 4)
   - action_stop_premium
+  # Step 6: Allows user to modify a specific field value
+  - action_modify
+  # Step 7: Clears all slots to start fresh quotation
+  - action_restart

@@ -293,6 +293,38 @@ nlu:
     - yes please
     - please proceed
 
+# Restart Action: Clears all quotation slots when user types /restart.
+- intent: restart
+  examples: |
+    - /restart
+    - restart
+    - start over
+    - clear all
+    - reset
+
+- intent: modify
+  examples: |
+    - modify [term](slot_to_modify)
+    - modify [sum assured](slot_to_modify)
+    - modify [sum](slot_to_modify)
+    - modify [ppt](slot_to_modify)
+    - modify [name](slot_to_modify)
+    - modify [dob](slot_to_modify)
+    - modify [date of birth](slot_to_modify)
+    - modify [gender](slot_to_modify)
+    - modify [marital status](slot_to_modify)
+    - modify [tobacco](slot_to_modify)
+    - change [term](slot_to_modify)
+    - change [sum assured](slot_to_modify)
+    - update [term](slot_to_modify)
+    - update [sum assured](slot_to_modify)
+    - edit [term](slot_to_modify)
+    - edit [name](slot_to_modify)
+    - I want to modify [term](slot_to_modify)
+    - I want to change [sum assured](slot_to_modify)
+    - can I modify [ppt](slot_to_modify)
+    - let me change [dob](slot_to_modify)
+
 # if user puts entire details together
 - intent: provide_all_details
   examples: |
